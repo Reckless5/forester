@@ -4,6 +4,8 @@
   base = "web"
   command = "npm ci && npm run build"
   publish = "dist"
+  # Always build: env vars (e.g. Supabase keys) change without changes in web/
+  ignore = "exit 1"
 
 [build.environment]
   NODE_VERSION = "22"
