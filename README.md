@@ -25,8 +25,10 @@ deployed site (below), not on the local network URL.
 
 ## Deploy
 
-Every push to `main` builds `web/` and publishes it to GitHub Pages
-(`.github/workflows/deploy.yml`). One-time setup: **Settings → Pages → Source: GitHub Actions**.
+- **Netlify** (project `forester-at`, config in `netlify.toml`): every push to `dev` deploys to
+  https://dev--forester-at.netlify.app
+- **GitHub Pages** (optional): every push to `main` builds `web/` and publishes it
+  (`.github/workflows/deploy.yml`). One-time setup: **Settings → Pages → Source: GitHub Actions**.
 
 ## Project layout
 
