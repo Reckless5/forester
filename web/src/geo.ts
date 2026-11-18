@@ -76,7 +76,7 @@ export function centroid(polys: PolygonCoords[]): LngLat {
 }
 
 /** A point guaranteed inside the polygon: middle of the widest horizontal span. */
-function interiorPoint(poly: PolygonCoords): LngLat {
+export function interiorPoint(poly: PolygonCoords): LngLat {
   const [[, y0], [, y1]] = bbox([poly]);
   let best: LngLat = poly[0][0];
   let bestWidth = -1;

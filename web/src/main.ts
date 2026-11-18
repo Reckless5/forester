@@ -4,6 +4,7 @@ import {
   AttributionControl,
   GeolocateControl,
   Map as MLMap,
+  Marker,
   NavigationControl,
   ScaleControl,
   setWorkerUrl,
@@ -14,9 +15,11 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { AUSTRIA_BOUNDS, AUSTRIA_CENTER, PARCEL_MINZOOM } from './config';
 import { bbox, bearingDeg, compass, distanceM, formatArea, formatDistance, pointInPolygons, type LngLat } from './geo';
+import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
+import { settings } from './settings';
 import { store, type SavedParcel } from './store';
-import { buildStyle, EMPTY_FC, L } from './style';
+import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
 
 // ---------- DOM ----------
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -26,6 +29,8 @@ const list = $('mine-list');
 const chipHere = $('chip-here');
 const chipZoom = $('chip-zoom');
 const btnLayer = $<HTMLButtonElement>('btn-layer');
+const menu = $('menu');
+const chipDebug = $('chip-debug');
 
 const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
@@ -59,6 +64,8 @@ const geolocate = new GeolocateControl({
 map.addControl(geolocate, 'top-right');
 
 let myPos: LngLat | undefined;
+let gpsPos: LngLat | undefined;
+let placingDebugPos = false;
 let selected: { info: ParcelInfo | SavedParcel; saved: boolean } | undefined;
 
 // ---------- Helpers ----------
@@ -258,6 +265,11 @@ sheet.addEventListener('click', (e) => {
 
 // ---------- Map interaction ----------
 map.on('click', (e) => {
+  if (placingDebugPos) {
+    placingDebugPos = false;
+    setDebugPos([e.lngLat.lng, e.lngLat.lat]);
+    return;
+  }
   const mine = map.queryRenderedFeatures(e.point, { layers: [L.mineFill, L.mineDot] })[0];
   if (mine) {
     const p = store.get(String(mine.properties?.key));
@@ -267,7 +279,8 @@ map.on('click', (e) => {
       return;
     }
   }
-  const hit = map.queryRenderedFeatures(e.point, { layers: [L.parcelHit] })[0] as MapGeoJSONFeature | undefined;
+  let hit = map.queryRenderedFeatures(e.point, { layers: [L.parcelHit] })[0] as MapGeoJSONFeature | undefined;
+  if (hit && settings.get().forestOnly && !forest.isForest(hit.id)) hit = undefined;
   if (hit) {
     const info = identifyParcel(map, hit, e.lngLat);
     const saved = store.get(info.key);
@@ -287,14 +300,97 @@ function updateZoomChip() {
 map.on('zoomend', updateZoomChip);
 
 // ---------- GPS ----------
-geolocate.on('geolocate', (e) => {
-  myPos = [e.coords.longitude, e.coords.latitude];
+function setMyPos(pos: LngLat | undefined) {
+  myPos = pos;
   updateHere();
   if (!drawer.hidden) renderList();
   if (selected && !sheet.hidden) {
     const rel = sheet.querySelector('.rel');
     if (rel) rel.textContent = relativeSentence(selected.info);
   }
+}
+
+geolocate.on('geolocate', (e) => {
+  gpsPos = [e.coords.longitude, e.coords.latitude];
+  if (!settings.get().debugPos) setMyPos(gpsPos);
+});
+
+// ---------- Debug location (set your position by hand) ----------
+const debugMarker = new Marker({ color: '#d81b60', draggable: true });
+debugMarker.on('dragend', () => {
+  const { lng, lat } = debugMarker.getLngLat();
+  setDebugPos([lng, lat]);
+});
+
+function setDebugPos(pos: LngLat | undefined) {
+  settings.set({ debugPos: pos });
+  if (pos) {
+    debugMarker.setLngLat(pos).addTo(map);
+    setMyPos(pos);
+  } else {
+    debugMarker.remove();
+    setMyPos(gpsPos);
+  }
+  chipDebug.hidden = !pos;
+  chipDebug.textContent = 'Debug-Standort aktiv';
+  renderMenu();
+}
+
+// ---------- Forest-only parcels ----------
+const forest = createForestIndex(map);
+
+function applyForestOnly() {
+  const paint = forestOnlyPaint(settings.get().forestOnly);
+  map.setPaintProperty(PARCEL_LINE, 'line-opacity', paint.parcelLine);
+  map.setPaintProperty(PARCEL_NUMBER, 'text-opacity', paint.parcelNumber);
+}
+
+// ---------- Menu ----------
+function renderMenu() {
+  const s = settings.get();
+  menu.innerHTML = `
+    <div class="drawer-head">
+      <h2>Einstellungen</h2>
+      <button type="button" class="icon" data-menu="close" aria-label="Schließen">✕</button>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" data-menu="forestOnly" ${s.forestOnly ? 'checked' : ''} />
+      <span>Nur Waldgrundstücke anzeigen</span>
+    </label>
+    <h3>Entwickler</h3>
+    <p class="fineprint">Eigenen Standort von Hand setzen, z.&nbsp;B. um die App von zu Hause zu testen.
+      Der Marker lässt sich verschieben.</p>
+    <div class="sheet-actions">
+      <button type="button" data-menu="placeDebug">${s.debugPos ? 'Standort neu setzen' : 'Standort auf Karte setzen'}</button>
+      ${s.debugPos ? '<button type="button" data-menu="clearDebug">GPS verwenden</button>' : ''}
+    </div>`;
+}
+
+menu.addEventListener('click', (e) => {
+  const act = (e.target as HTMLElement).closest<HTMLElement>('[data-menu]')?.dataset.menu;
+  if (act === 'close') menu.hidden = true;
+  else if (act === 'placeDebug') {
+    placingDebugPos = true;
+    menu.hidden = true;
+    clearSelection();
+    chipDebug.hidden = false;
+    chipDebug.textContent = 'Tippe auf die Karte, um deinen Standort zu setzen';
+  } else if (act === 'clearDebug') setDebugPos(undefined);
+});
+
+menu.addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  if (input.dataset.menu === 'forestOnly') {
+    settings.set({ forestOnly: input.checked });
+    applyForestOnly();
+    clearSelection();
+  }
+});
+
+$('btn-menu').addEventListener('click', () => {
+  drawer.hidden = true;
+  renderMenu();
+  menu.hidden = !menu.hidden;
 });
 
 geolocate.on('error', () => {
@@ -305,7 +401,12 @@ geolocate.on('error', () => {
 
 map.on('load', () => {
   updateZoomChip();
-  geolocate.trigger();
+  applyForestOnly();
+  const debugPos = settings.get().debugPos;
+  if (debugPos) {
+    setDebugPos(debugPos);
+    map.jumpTo({ center: debugPos, zoom: 16 });
+  } else geolocate.trigger(); // with a debug position, GPS would pull the map away
 });
 
 // ---------- Top bar ----------
@@ -317,6 +418,7 @@ btnLayer.addEventListener('click', () => {
 });
 
 $('btn-mine').addEventListener('click', () => {
+  menu.hidden = true;
   drawer.hidden = !drawer.hidden;
   if (!drawer.hidden) renderList();
 });

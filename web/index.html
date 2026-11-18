@@ -15,15 +15,19 @@
       <div class="topbar-actions">
         <button id="btn-layer" type="button">Luftbild</button>
         <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span></button>
+        <button id="btn-menu" type="button" class="icon menu-btn" aria-label="Einstellungen">☰</button>
       </div>
     </header>
 
     <div class="chips">
+      <div id="chip-debug" class="chip chip-debug" hidden></div>
       <div id="chip-here" class="chip chip-here" hidden></div>
       <div id="chip-zoom" class="chip" hidden>Hineinzoomen, um Grundstücksgrenzen zu sehen</div>
     </div>
 
     <section id="sheet" class="sheet" hidden aria-live="polite"></section>
+
+    <section id="menu" class="drawer" hidden></section>
 
     <section id="drawer" class="drawer" hidden>
       <div class="drawer-head">

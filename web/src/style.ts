@@ -36,6 +36,20 @@ const GREEN = '#2e7d32';
 const MINE = '#1565c0';
 const SELECTED = '#ef6c00';
 
+/** Paint values for "only forest parcels" on/off. */
+const onlyForest = (visible: number) =>
+  ['case', ['boolean', ['feature-state', 'forest'], false], visible, 0] as unknown as number;
+
+export function forestOnlyPaint(on: boolean) {
+  return {
+    parcelLine: on ? onlyForest(0.85) : 0.85,
+    parcelNumber: on ? onlyForest(1) : 1,
+  };
+}
+
+export const PARCEL_LINE = 'parcel-line';
+export const PARCEL_NUMBER = 'parcel-number';
+
 export function buildStyle(): Style {
   return {
     version: 8,
@@ -124,6 +138,7 @@ export function buildStyle(): Style {
         paint: {
           'line-color': ['match', ['get', 'rstatus'], 'G', '#111', '#333'],
           'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 1.6],
+          // Set by applyForestOnly(); feature-state `forest` comes from forest.ts
           'line-opacity': 0.85,
         },
       },
