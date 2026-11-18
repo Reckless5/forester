@@ -29,7 +29,8 @@ Known from BEV's styles (field names in the tiles are not formally documented):
 | `pg` | polygon | `pg` (municipality name) | – |
 | `bl`, `blp` | polygon, point | `bl` (state name) | – |
 
-Land-use codes (`ns`) we use: `56` Wälder, `55` Krummholzflächen, `58` Forststraßen.
+Land-use codes (`ns`) we use: `56` Wälder, `55` Krummholzflächen, `58` Forststraßen
+(map menu "Wälder anzeigen") and `48` Äcker, Wiesen oder Weiden ("Felder anzeigen").
 Full list in the BEV GeoPackage spec, table 12.
 
 If a parcel feature doesn't carry its own number, the app finds the `gnr` label

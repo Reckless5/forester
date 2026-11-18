@@ -1,19 +1,31 @@
-// Works out which parcels contain forest.
+// Works out which parcels contain forest and which contain fields.
 //
 // Parcels (`gst`) carry no land use. Land use is in separate polygons (`nfl`,
 // field `ns`), and each of those lies inside exactly one parcel. So for every
-// forest polygon we take a point inside it, find the parcel containing that
-// point and mark the parcel with feature-state `forest: true`. The parcel
-// layers then only draw marked parcels.
+// forest or field polygon we take a point inside it, find the parcel
+// containing that point and mark the parcel with feature-state `forest: true`
+// or `field: true`. The parcel layers then only draw the kinds that are
+// switched on in the map menu.
 //
 // Parcel and label ids are stable across tiles, so the marks carry over when
 // new tiles load or when the user zooms.
 
 import type { Map as MLMap, GeoJSONFeature } from 'maplibre-gl';
-import { NS_DWARF_PINE, NS_FOREST, PARCEL_MINZOOM } from './config';
+import { NS_DWARF_PINE, NS_FIELD, NS_FOREST, PARCEL_MINZOOM } from './config';
 import { bbox, interiorPoint, pointInPolygons, toPolygons, type LngLat, type PolygonCoords } from './geo';
 
 type Id = string | number;
+export type LandUse = 'forest' | 'field';
+
+/** Land-use codes (BEV "NS") that make a parcel count as forest or field. */
+const CLASSES: Record<LandUse, number[]> = {
+  forest: [NS_FOREST, NS_DWARF_PINE], // Wälder, Krummholzflächen
+  field: [NS_FIELD], // Äcker, Wiesen oder Weiden
+};
+const ALL_CODES = Object.values(CLASSES).flat();
+const classOf = (ns: number): LandUse | undefined =>
+  (Object.keys(CLASSES) as LandUse[]).find((k) => CLASSES[k].includes(ns));
+
 interface Indexed { id: Id; polys: PolygonCoords[]; box: [LngLat, LngLat] }
 
 const CELL = 0.004; // grid cell size in degrees (~300–450 m)
@@ -45,52 +57,58 @@ function buildGrid(features: GeoJSONFeature[]) {
   };
 }
 
-export function createForestIndex(map: MLMap) {
-  const forestParcels = new Set<Id>();
-  const doneForestAreas = new Set<string>();
-  const doneLabels = new Set<Id>();
+export function createLandUseIndex(map: MLMap) {
+  const parcels: Record<LandUse, Set<Id>> = { forest: new Set(), field: new Set() };
+  const labels: Record<LandUse, Set<Id>> = { forest: new Set(), field: new Set() };
+  const doneAreas = new Set<string>();
 
-  const mark = (sourceLayer: 'gst' | 'gnr', id: Id) =>
-    map.setFeatureState({ source: 'kataster', sourceLayer, id }, { forest: true });
+  const mark = (sourceLayer: 'gst' | 'gnr', id: Id, use: LandUse) =>
+    map.setFeatureState({ source: 'kataster', sourceLayer, id }, { [use]: true });
 
   function update() {
     if (map.getZoom() < PARCEL_MINZOOM - 0.5 || !map.getSource('kataster')) return;
 
     const areas = map.querySourceFeatures('kataster', {
       sourceLayer: 'nfl',
-      filter: ['in', ['get', 'ns'], ['literal', [NS_FOREST, NS_DWARF_PINE]]],
+      filter: ['in', ['get', 'ns'], ['literal', ALL_CODES]],
     });
-    const points: LngLat[] = [];
+    const points: [LngLat, LandUse][] = [];
     for (const a of areas) {
+      const use = classOf(Number(a.properties?.ns));
+      if (!use) continue;
       for (const poly of toPolygons(a.geometry as never)) {
         // Tile pieces of one area share an id, so key on id + piece position
         const sig = `${a.id}:${poly[0][0][0].toFixed(6)},${poly[0][0][1].toFixed(6)}`;
-        if (doneForestAreas.has(sig)) continue;
-        doneForestAreas.add(sig);
-        points.push(interiorPoint(poly));
+        if (doneAreas.has(sig)) continue;
+        doneAreas.add(sig);
+        points.push([interiorPoint(poly), use]);
       }
     }
 
-    const parcels = map.querySourceFeatures('kataster', { sourceLayer: 'gst' });
-    const parcelAt = buildGrid(parcels);
+    const parcelAt = buildGrid(map.querySourceFeatures('kataster', { sourceLayer: 'gst' }));
 
-    for (const p of points) {
+    for (const [p, use] of points) {
       const id = parcelAt(p);
-      if (id !== undefined && !forestParcels.has(id)) {
-        forestParcels.add(id);
-        mark('gst', id);
+      if (id !== undefined && !parcels[use].has(id)) {
+        parcels[use].add(id);
+        mark('gst', id, use);
       }
     }
 
-    // Parcel-number labels: show those that sit in a forest parcel
+    // Parcel-number labels: mark those that sit in a forest / field parcel
     for (const label of map.querySourceFeatures('kataster', { sourceLayer: 'gnr' })) {
-      if (label.id === undefined || label.id === null || doneLabels.has(label.id)) continue;
-      if (label.geometry.type !== 'Point') continue;
+      if (label.id === undefined || label.id === null || label.geometry.type !== 'Point') continue;
+      const lid = label.id;
+      const uses = (Object.keys(parcels) as LandUse[]).filter((u) => !labels[u].has(lid));
+      if (!uses.length) continue;
       const id = parcelAt(label.geometry.coordinates as LngLat);
-      // Not (yet) forest: check again next time, the forest area may be in a tile still loading
-      if (id === undefined || !forestParcels.has(id)) continue;
-      doneLabels.add(label.id);
-      mark('gnr', label.id);
+      // Not (yet) marked: check again next time, the area may be in a tile still loading
+      if (id === undefined) continue;
+      for (const u of uses)
+        if (parcels[u].has(id)) {
+          labels[u].add(lid);
+          mark('gnr', lid, u);
+        }
     }
   }
 
@@ -104,12 +122,11 @@ export function createForestIndex(map: MLMap) {
       const t = performance.now();
       update();
       const ms = performance.now() - t;
-      if (ms > 50) console.debug(`[forest] update took ${ms.toFixed(0)} ms`);
+      if (ms > 50) console.debug(`[landuse] update took ${ms.toFixed(0)} ms`);
     }, 0);
   });
 
   return {
-    isForest: (id: Id | undefined) => id !== undefined && forestParcels.has(id),
-    count: () => forestParcels.size,
+    is: (use: LandUse, id: Id | undefined) => id !== undefined && parcels[use].has(id),
   };
 }

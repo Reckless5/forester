@@ -21,13 +21,15 @@
         <button id="search-clear" type="button" class="icon" aria-label="Suche leeren" hidden>✕</button>
       </form>
       <div class="topbar-actions">
-        <button id="btn-layer" type="button" class="icon layer-btn" aria-label="Luftbild" title="Luftbild / Karte">
+        <button id="btn-layer" type="button" class="icon layer-btn" aria-label="Kartenmenü" aria-expanded="false" title="Kartenmenü">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5zm-7.6 8.2L2 12.4l10 5 10-5-2.4-1.2L12 15l-7.6-3.8zm0 4L2 16.4l10 5 10-5-2.4-1.2L12 19l-7.6-3.8z"/></svg>
         </button>
       </div>
     </header>
 
     <section id="search-results" class="search-results" hidden></section>
+
+    <section id="map-menu" class="map-menu" hidden aria-label="Kartenmenü"></section>
 
     <div class="chips">
       <div id="chip-debug" class="chip chip-debug" hidden></div>

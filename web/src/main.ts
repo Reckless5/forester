@@ -17,7 +17,7 @@ import { AUSTRIA_BOUNDS, AUSTRIA_CENTER, PARCEL_MINZOOM } from './config';
 import { bbox, bearingDeg, compass, distanceM, formatArea, formatDistance, pointInPolygons, type LngLat } from './geo';
 import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
 import { initOverview } from './overview-ui';
-import { createForestIndex } from './forest';
+import { createLandUseIndex } from './landuse';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
 import { initAccount } from './account-ui';
@@ -26,7 +26,7 @@ import { initReports } from './reports-ui';
 import { initSharedView, sendToMember, shareParcels } from './share-ui';
 import { initSearch } from './search-ui';
 import { isOwned, store, type SavedParcel } from './store';
-import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
+import { buildStyle, EMPTY_FC, FIELD_COLOR, FOREST_COLOR, L, LANDUSE_LAYERS, PARCEL_LINE, PARCEL_NUMBER, parcelPaint } from './style';
 
 // ---------- DOM ----------
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
@@ -293,7 +293,10 @@ map.on('click', (e) => {
     }
   }
   let hit = map.queryRenderedFeatures(e.point, { layers: [L.parcelHit] })[0] as MapGeoJSONFeature | undefined;
-  if (hit && settings.get().forestOnly && !forest.isForest(hit.id)) hit = undefined;
+  // Only parcels of the kinds switched on in the map menu can be tapped
+  const show = settings.get();
+  if (hit && !((show.showForest && landUse.is('forest', hit.id)) || (show.showFields && landUse.is('field', hit.id))))
+    hit = undefined;
   if (hit) {
     const info = identifyParcel(map, hit, e.lngLat);
     const saved = store.get(info.key);
@@ -350,14 +353,74 @@ function setDebugPos(pos: LngLat | undefined) {
   renderMenu();
 }
 
-// ---------- Forest-only parcels ----------
-const forest = createForestIndex(map);
+// ---------- Which parcels are shown (map menu) ----------
+const landUse = createLandUseIndex(map);
 
-function applyForestOnly() {
-  const paint = forestOnlyPaint(settings.get().forestOnly);
+function applyParcelVisibility() {
+  const s = settings.get();
+  const paint = parcelPaint({ forest: s.showForest, field: s.showFields });
   map.setPaintProperty(PARCEL_LINE, 'line-opacity', paint.parcelLine);
   map.setPaintProperty(PARCEL_NUMBER, 'text-opacity', paint.parcelNumber);
+  for (const id of LANDUSE_LAYERS.forest) map.setLayoutProperty(id, 'visibility', s.showForest ? 'visible' : 'none');
+  for (const id of LANDUSE_LAYERS.field) map.setLayoutProperty(id, 'visibility', s.showFields ? 'visible' : 'none');
 }
+
+// ---------- Map menu (layer button): base map + which parcels ----------
+const mapMenu = $('map-menu');
+
+function renderMapMenu() {
+  const s = settings.get();
+  const ortho = map.getLayoutProperty(L.ortho, 'visibility') === 'visible';
+  mapMenu.innerHTML = `
+    <h4>Kartenansicht</h4>
+    <div class="segmented" role="group" aria-label="Kartenansicht">
+      <button type="button" data-base="map" class="${ortho ? '' : 'on'}" aria-pressed="${!ortho}">Karte</button>
+      <button type="button" data-base="ortho" class="${ortho ? 'on' : ''}" aria-pressed="${ortho}">Luftbild</button>
+    </div>
+    <h4>Grundstücke</h4>
+    <label class="toggle"><input type="checkbox" data-mm="showForest" ${s.showForest ? 'checked' : ''} />
+      <i class="swatch" style="--c:${FOREST_COLOR}"></i><span>Wälder anzeigen</span></label>
+    <label class="toggle"><input type="checkbox" data-mm="showFields" ${s.showFields ? 'checked' : ''} />
+      <i class="swatch" style="--c:${FIELD_COLOR}"></i><span>Felder anzeigen</span></label>
+    <p class="fineprint">${
+      s.showForest || s.showFields
+        ? 'Grenzen und Nummern erscheinen beim Hineinzoomen.'
+        : 'Keine Grundstücksgrenzen eingeblendet – deine gespeicherten Grundstücke bleiben sichtbar.'
+    }</p>`;
+}
+
+function setMapMenu(open: boolean) {
+  if (open) renderMapMenu();
+  mapMenu.hidden = !open;
+  btnLayer.classList.toggle('on', open);
+  btnLayer.setAttribute('aria-expanded', String(open));
+}
+
+btnLayer.addEventListener('click', () => {
+  search.close();
+  setMapMenu(mapMenu.hidden);
+});
+
+mapMenu.addEventListener('click', (e) => {
+  const base = (e.target as HTMLElement).closest<HTMLElement>('[data-base]')?.dataset.base;
+  if (!base) return;
+  map.setLayoutProperty(L.ortho, 'visibility', base === 'ortho' ? 'visible' : 'none');
+  map.setLayoutProperty(L.basemap, 'visibility', base === 'ortho' ? 'none' : 'visible');
+  renderMapMenu();
+});
+
+mapMenu.addEventListener('change', (e) => {
+  const input = e.target as HTMLInputElement;
+  const key = input.dataset.mm as 'showForest' | 'showFields' | undefined;
+  if (!key) return;
+  settings.set({ [key]: input.checked });
+  applyParcelVisibility();
+  clearSelection();
+  renderMapMenu();
+});
+
+map.on('mousedown', () => setMapMenu(false));
+map.on('touchstart', () => setMapMenu(false));
 
 // ---------- Toast ----------
 const toastEl = $('toast');
@@ -420,6 +483,7 @@ function setTab(next: Tab) {
     else b.removeAttribute('aria-current');
   });
   search.close();
+  setMapMenu(false);
   if (next === 'overview') {
     overview?.render();
     void reports?.refresh();
@@ -536,11 +600,6 @@ function renderMenu() {
   menu.innerHTML = `
     <h2>Einstellungen</h2>
     ${pushMenuHtml()}
-    <h3>Karte</h3>
-    <label class="toggle">
-      <input type="checkbox" data-menu="forestOnly" ${s.forestOnly ? 'checked' : ''} />
-      <span>Nur Waldgrundstücke anzeigen</span>
-    </label>
     <h3>Entwickler</h3>
     <p class="fineprint">Eigenen Standort von Hand setzen, z.&nbsp;B. um die App von zu Hause zu testen.
       Der Marker lässt sich verschieben.</p>
@@ -571,11 +630,7 @@ menu.addEventListener('change', (e) => {
       .finally(refreshPushStatus);
     return;
   }
-  if (input.dataset.menu === 'forestOnly') {
-    settings.set({ forestOnly: input.checked });
-    applyForestOnly();
-    clearSelection();
-  }
+
 });
 
 
@@ -587,7 +642,7 @@ geolocate.on('error', () => {
 
 map.on('load', () => {
   updateZoomChip();
-  applyForestOnly();
+  applyParcelVisibility();
   const debugPos = settings.get().debugPos;
   if (debugPos) {
     setDebugPos(debugPos);
@@ -599,13 +654,7 @@ map.on('load', () => {
 registerServiceWorker();
 
 // ---------- Top bar ----------
-btnLayer.addEventListener('click', () => {
-  const orthoOn = map.getLayoutProperty(L.ortho, 'visibility') === 'visible';
-  map.setLayoutProperty(L.ortho, 'visibility', orthoOn ? 'none' : 'visible');
-  map.setLayoutProperty(L.basemap, 'visibility', orthoOn ? 'visible' : 'none');
-  btnLayer.classList.toggle('on', !orthoOn);
-  btnLayer.setAttribute('aria-label', orthoOn ? 'Luftbild' : 'Karte');
-});
+
 
 // ---------- Search ----------
 const search = initSearch({

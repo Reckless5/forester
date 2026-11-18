@@ -9,6 +9,7 @@ import {
   KATASTER_TILES,
   NS_DWARF_PINE,
   NS_FOREST,
+  NS_FIELD,
   NS_FOREST_ROAD,
   ORTHO_TILES,
   PARCEL_MINZOOM,
@@ -39,19 +40,25 @@ const GREEN = '#2e7d32';
 const MINE = '#1565c0';
 const SELECTED = '#ef6c00';
 
-/** Paint values for "only forest parcels" on/off. */
-const onlyForest = (visible: number) =>
-  ['case', ['boolean', ['feature-state', 'forest'], false], visible, 0] as unknown as number;
+export const FIELD_COLOR = '#f9a825';
+export const FOREST_COLOR = GREEN;
 
-export function forestOnlyPaint(on: boolean) {
-  return {
-    parcelLine: on ? onlyForest(0.85) : 0.85,
-    parcelNumber: on ? onlyForest(1) : 1,
-  };
+/**
+ * Parcel lines and numbers are only drawn for the kinds switched on in the map
+ * menu (feature-state `forest` / `field`, set by landuse.ts).
+ */
+export function parcelPaint(show: { forest: boolean; field: boolean }) {
+  const conds = (['forest', 'field'] as const)
+    .filter((k) => show[k])
+    .map((k) => ['boolean', ['feature-state', k], false]);
+  const when = (visible: number) =>
+    (conds.length ? ['case', ['any', ...conds], visible, 0] : 0) as unknown as number;
+  return { parcelLine: when(0.85), parcelNumber: when(1) };
 }
 
 export const PARCEL_LINE = 'parcel-line';
 export const PARCEL_NUMBER = 'parcel-number';
+export const LANDUSE_LAYERS = { forest: ['forest', 'forest-road'], field: ['fields'] } as const;
 
 export function buildStyle(): Style {
   return {
@@ -87,7 +94,19 @@ export function buildStyle(): Style {
       { id: L.basemap, type: 'raster', source: 'basemap' },
       { id: L.ortho, type: 'raster', source: 'ortho', layout: { visibility: 'none' } },
 
-      // Forest land use
+      // Fields (Äcker, Wiesen oder Weiden) – shown with "Felder anzeigen"
+      {
+        id: 'fields',
+        type: 'fill',
+        source: 'kataster',
+        'source-layer': 'nfl',
+        minzoom: 12,
+        filter: ['==', ['get', 'ns'], NS_FIELD],
+        layout: { visibility: 'none' },
+        paint: { 'fill-color': FIELD_COLOR, 'fill-opacity': 0.25 },
+      },
+
+      // Forest land use – shown with "Wälder anzeigen"
       {
         id: 'forest',
         type: 'fill',
@@ -142,7 +161,7 @@ export function buildStyle(): Style {
         paint: {
           'line-color': ['match', ['get', 'rstatus'], 'G', '#111', '#333'],
           'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.5, 18, 1.6],
-          // Set by applyForestOnly(); feature-state `forest` comes from forest.ts
+          // Set by applyParcelVisibility(); feature-states come from landuse.ts
           'line-opacity': 0.85,
         },
       },

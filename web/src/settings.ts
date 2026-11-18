@@ -3,14 +3,16 @@
 import type { LngLat } from './geo';
 
 export interface Settings {
-  /** Only draw parcels that contain forest. */
-  forestOnly: boolean;
+  /** Draw parcels that contain forest (map menu "Wälder anzeigen"). */
+  showForest: boolean;
+  /** Draw parcels that contain fields (map menu "Felder anzeigen"). */
+  showFields: boolean;
   /** Hand-placed position for testing; overrides GPS while set. */
   debugPos?: LngLat;
 }
 
 const KEY = 'forester.settings.v1';
-const DEFAULTS: Settings = { forestOnly: true };
+const DEFAULTS: Settings = { showForest: true, showFields: false };
 
 function load(): Settings {
   try {

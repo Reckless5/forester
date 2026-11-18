@@ -25,6 +25,7 @@ export const BASEMAP_ATTRIBUTION =
 export const NS_FOREST = 56; // Wälder
 export const NS_DWARF_PINE = 55; // Krummholzflächen
 export const NS_FOREST_ROAD = 58; // Forststraßen
+export const NS_FIELD = 48; // Äcker, Wiesen oder Weiden
 
 /** Parcels are only in the tiles from this zoom on. */
 export const PARCEL_MINZOOM = 14;
