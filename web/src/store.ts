@@ -155,6 +155,12 @@ export const store = {
       },
     };
   },
+  /** Replace with a fresh copy from the account (e.g. after the server changed flags). */
+  reloaded(fromServer: SavedParcel[]) {
+    parcels = fromServer;
+    persist();
+    listeners.forEach((l) => l(parcels));
+  },
   /** Back to the parcels kept on this device without an account. */
   useLocal() {
     storageKey = LOCAL_KEY;

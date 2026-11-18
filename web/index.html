@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#1b5e20" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Forester" />
     <title>Forester – Waldgrundstücke</title>
   </head>
   <body>
@@ -20,7 +24,7 @@
         <button id="btn-layer" type="button" class="icon layer-btn" aria-label="Luftbild" title="Luftbild / Karte">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5zm-7.6 8.2L2 12.4l10 5 10-5-2.4-1.2L12 15l-7.6-3.8zm0 4L2 16.4l10 5 10-5-2.4-1.2L12 19l-7.6-3.8z"/></svg>
         </button>
-        <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span></button>
+        <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span><span id="reports-badge" class="badge" hidden></span></button>
         <button id="btn-menu" type="button" class="icon menu-btn" aria-label="Einstellungen">☰</button>
       </div>
     </header>
@@ -39,6 +43,8 @@
 
     <section id="account" class="drawer" hidden></section>
 
+    <section id="shared" class="drawer" hidden></section>
+
     <div id="toast" class="toast" role="status" hidden></div>
 
     <section id="drawer" class="drawer" hidden>
@@ -46,9 +52,11 @@
         <h2>Meine Grundstücke</h2>
         <button id="btn-drawer-close" type="button" class="icon" aria-label="Schließen">✕</button>
       </div>
+      <div id="reports" class="reports"></div>
       <div id="list-filter" class="list-filter"></div>
       <ul id="mine-list" class="mine-list"></ul>
       <div class="drawer-foot">
+        <button id="btn-share" type="button" class="primary">Liste teilen</button>
         <button id="btn-fit-all" type="button">Alle anzeigen</button>
         <button id="btn-export" type="button">Sichern</button>
         <label class="button">Laden<input id="input-import" type="file" accept="application/json,.json" hidden /></label>

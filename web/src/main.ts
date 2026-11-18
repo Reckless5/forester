@@ -20,6 +20,9 @@ import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
 import { initAccount } from './account-ui';
+import { claimPushForAccount, disablePush, enablePush, pushState, registerServiceWorker, type PushState } from './push';
+import { initReports } from './reports-ui';
+import { initSharedView, shareParcels } from './share-ui';
 import { initSearch } from './search-ui';
 import { isOwned, store, type SavedParcel } from './store';
 import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
@@ -70,11 +73,14 @@ let myPos: LngLat | undefined;
 let gpsPos: LngLat | undefined;
 let placingDebugPos = false;
 let listFilter: FlagType | 'all' = 'all';
+const openingLink = /[?&](share|report)=/.test(location.search);
 let loggedIn = false;
+let visibleParcels: SavedParcel[] = [];
+let sharedView: ReturnType<typeof initSharedView> | undefined;
 let selected: { info: ParcelInfo | SavedParcel; saved: boolean } | undefined;
 
 // ---------- Helpers ----------
-function setSource(id: 'selected' | 'mine', data: GeoJSON.FeatureCollection) {
+function setSource(id: 'selected' | 'mine' | 'shared', data: GeoJSON.FeatureCollection) {
   (map.getSource(id) as GeoJSONSource | undefined)?.setData(data);
 }
 
@@ -172,6 +178,7 @@ function renderList() {
   else parcels.sort((a, b) => a.name.localeCompare(b.name, 'de'));
   const own = parcels.filter(isOwned);
   const others = parcels.filter((p) => !isOwned(p));
+  visibleParcels = [...own, ...others];
   const count = (t: FlagType) => all.filter((p) => p.flags?.some((f) => f.type === t)).length;
 
   $('list-filter').innerHTML = [
@@ -233,6 +240,7 @@ function clearSelection() {
   selected = undefined;
   sheet.hidden = true;
   setSource('selected', EMPTY_FC);
+  sharedView?.resume();
 }
 
 function renderSheet() {
@@ -334,6 +342,12 @@ map.on('click', (e) => {
     setDebugPos([e.lngLat.lng, e.lngLat.lat]);
     return;
   }
+  const shared = map.queryRenderedFeatures(e.point, { layers: [L.sharedDot, L.sharedFill] })[0];
+  const sharedParcel = shared && sharedParcels.find((p) => p.key === shared.properties?.key);
+  if (sharedParcel) {
+    showSharedParcel(sharedParcel);
+    return;
+  }
   const mine = map.queryRenderedFeatures(e.point, { layers: [...L.flagDots, L.mineDot, L.mineFill] })[0];
   if (mine) {
     const p = store.get(String(mine.properties?.key));
@@ -353,7 +367,7 @@ map.on('click', (e) => {
   } else clearSelection();
 });
 
-for (const layer of [L.parcelHit, L.mineFill, L.mineDot, ...L.flagDots]) {
+for (const layer of [L.parcelHit, L.mineFill, L.mineDot, ...L.flagDots, L.sharedFill, L.sharedDot]) {
   map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
 }
@@ -368,6 +382,7 @@ function setMyPos(pos: LngLat | undefined) {
   myPos = pos;
   updateHere();
   if (!drawer.hidden) renderList();
+  if (sharedView?.isOpen()) sharedView.refreshDistances();
   if (selected && !sheet.hidden) {
     const rel = sheet.querySelector('.rel');
     if (rel) rel.textContent = relativeSentence(selected.info);
@@ -431,9 +446,106 @@ const account = initAccount({
     clearSelection();
     renderList();
     if (!menu.hidden) renderMenu();
+    void reports.refresh();
+    if (loggedIn) void claimPushForAccount();
+  },
+  beforeLogout: () => disablePush(),
+  toast,
+});
+
+// ---------- Reports (others flagged my parcels) ----------
+const reports = initReports({
+  isLoggedIn: () => loggedIn,
+  showParcel: (key) => {
+    const p = store.get(key);
+    if (!p) return;
+    drawer.hidden = true;
+    showSaved(p);
+    fitTo(p.geometry.coordinates);
+  },
+  openList: () => {
+    menu.hidden = true;
+    account.close();
+    drawer.hidden = false;
+    renderList();
   },
   toast,
 });
+
+// ---------- Shared lists ----------
+let sharedParcels: SavedParcel[] = [];
+const SHARED_COLOR = '#00838f';
+
+function showSharedParcel(p: SavedParcel) {
+  sharedView?.suspend();
+  // Show it like a tapped parcel, so it can be saved or flagged
+  const kept = store.get(p.key);
+  if (kept) showSaved(kept);
+  else select({ ...p, complete: true, raw: { gst: {} } } as unknown as ParcelInfo, false);
+  fitTo(p.geometry.coordinates);
+}
+
+sharedView = initSharedView({
+  setShared: (parcels) => {
+    sharedParcels = parcels;
+    const features: GeoJSON.Feature[] = parcels.flatMap((p) => {
+      const flags = sortFlags(p.flags);
+      const color = flags.length ? flagDef(flags[0].type).color : SHARED_COLOR;
+      return [
+        { type: 'Feature', properties: { key: p.key, kind: 'area', color }, geometry: p.geometry },
+        { type: 'Feature', properties: { key: p.key, kind: 'point', color }, geometry: { type: 'Point', coordinates: p.center } },
+      ] as GeoJSON.Feature[];
+    });
+    const apply = () => setSource('shared', { type: 'FeatureCollection', features });
+    if (map.isStyleLoaded()) apply();
+    else map.once('load', apply);
+  },
+  fitAll: (parcels) => {
+    if (parcels.length) fitTo(parcels.flatMap((p) => p.geometry.coordinates), 16);
+  },
+  showParcel: (p) => showSharedParcel(p),
+  relativeTo: (p) => relativeTo(p),
+  onOpen: () => {
+    menu.hidden = true;
+    drawer.hidden = true;
+    account.close();
+    search.close();
+  },
+  toast,
+});
+
+$('btn-share').addEventListener('click', () => {
+  const title = listFilter === 'all' ? 'Meine Grundstücke' : flagDef(listFilter).label;
+  void shareParcels(visibleParcels, title, { isLoggedIn: loggedIn, toast });
+});
+
+// ---------- Push notifications ----------
+let pushStatus: PushState = 'unsupported';
+const refreshPushStatus = async () => {
+  pushStatus = await pushState();
+  if (!menu.hidden) renderMenu();
+};
+
+function pushMenuHtml() {
+  if (!account.enabled || !loggedIn) return '';
+  const hint: Record<PushState, string> = {
+    on: 'Du bekommst eine Nachricht, wenn jemand auf deinen Grundstücken etwas meldet.',
+    off: 'Nachricht bekommen, wenn jemand auf deinen Grundstücken etwas meldet.',
+    denied: 'Benachrichtigungen sind für diese Seite im Browser blockiert. Bitte in den Browser-Einstellungen erlauben.',
+    'needs-install':
+      'Auf dem iPhone: zuerst über „Teilen → Zum Home-Bildschirm“ installieren und die App von dort öffnen.',
+    unsupported: 'Dieser Browser unterstützt keine Benachrichtigungen.',
+  };
+  const canToggle = pushStatus === 'on' || pushStatus === 'off';
+  return `<h3>Benachrichtigungen</h3>
+    ${
+      canToggle
+        ? `<label class="toggle"><input type="checkbox" data-menu="push" ${pushStatus === 'on' ? 'checked' : ''} />
+            <span>Bei Meldungen benachrichtigen</span></label>`
+        : ''
+    }
+    <p class="fineprint">${hint[pushStatus]}</p>`;
+}
 
 function accountMenuHtml() {
   if (!account.enabled) return '';
@@ -458,6 +570,8 @@ function renderMenu() {
       <button type="button" class="icon" data-menu="close" aria-label="Schließen">✕</button>
     </div>
     ${accountMenuHtml()}
+    ${pushMenuHtml()}
+    <h3>Karte</h3>
     <label class="toggle">
       <input type="checkbox" data-menu="forestOnly" ${s.forestOnly ? 'checked' : ''} />
       <span>Nur Waldgrundstücke anzeigen</span>
@@ -486,6 +600,14 @@ menu.addEventListener('click', (e) => {
 
 menu.addEventListener('change', (e) => {
   const input = e.target as HTMLInputElement;
+  if (input.dataset.menu === 'push') {
+    input.disabled = true;
+    (input.checked ? enablePush() : disablePush())
+      .then(() => toast(input.checked ? 'Benachrichtigungen eingeschaltet.' : 'Benachrichtigungen ausgeschaltet.'))
+      .catch((err: Error) => toast(err.message))
+      .finally(refreshPushStatus);
+    return;
+  }
   if (input.dataset.menu === 'forestOnly') {
     settings.set({ forestOnly: input.checked });
     applyForestOnly();
@@ -494,6 +616,7 @@ menu.addEventListener('change', (e) => {
 });
 
 $('btn-menu').addEventListener('click', () => {
+  void refreshPushStatus();
   drawer.hidden = true;
   account.close();
   search.close();
@@ -514,8 +637,11 @@ map.on('load', () => {
   if (debugPos) {
     setDebugPos(debugPos);
     map.jumpTo({ center: debugPos, zoom: 16 });
-  } else geolocate.trigger(); // with a debug position, GPS would pull the map away
+  } else if (!openingLink) geolocate.trigger(); // GPS would pull the map away from a debug position or link
+  void sharedView?.openFromUrl();
 });
+
+registerServiceWorker();
 
 // ---------- Top bar ----------
 btnLayer.addEventListener('click', () => {

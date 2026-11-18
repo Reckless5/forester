@@ -7,6 +7,10 @@ import {
   createInvite,
   currentSession,
   deleteInvite,
+  deleteShare,
+  listShares,
+  shareUrl,
+  type ShareInfo,
   inviteUrl,
   listInvites,
   loadParcels,
@@ -27,12 +31,18 @@ const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 const date = (iso: string) => new Date(iso).toLocaleDateString('de-AT');
 
-export function initAccount(opts: { onOpen: () => void; onChange: () => void; toast: (msg: string) => void }) {
+export function initAccount(opts: {
+  onOpen: () => void;
+  onChange: () => void;
+  beforeLogout?: () => Promise<void>;
+  toast: (msg: string) => void;
+}) {
   const panel = document.getElementById('account') as HTMLElement;
   let view: View = 'login';
   let profile: Profile | undefined;
   let userId: string | undefined;
   let invites: Invite[] = [];
+  let shares: ShareInfo[] = [];
   let newInvite: Invite | undefined;
   let error = '';
   let busy = false;
@@ -140,6 +150,21 @@ export function initAccount(opts: { onOpen: () => void; onChange: () => void; to
           ${profile.isAdmin ? '<i class="pill" style="--c:#1b5e20">Admin</i>' : ''}</p>
         <p class="fineprint">${store.all().length} Grundstück(e) im Konto gespeichert – auf allen Geräten verfügbar.</p>
         ${err}
+        ${
+          shares.length
+            ? `<h3>Geteilte Listen</h3>
+              <ul class="share-list">${shares
+                .map(
+                  (sh) => `<li><div><strong>${esc(sh.title)}</strong>
+                    <span>${sh.count} Grundstück(e) · gültig bis ${date(sh.expiresAt)}</span></div>
+                    <span class="invite-actions">
+                      <button type="button" class="icon" data-acc="copy-share" data-token="${sh.token}" aria-label="Link kopieren" title="Link kopieren">⧉</button>
+                      <button type="button" class="icon" data-acc="delete-share" data-token="${sh.token}" aria-label="Löschen" title="Löschen">🗑</button>
+                    </span></li>`,
+                )
+                .join('')}</ul>`
+            : ''
+        }
         ${inviteBlock}
         <div class="sheet-actions"><button type="button" data-acc="logout">Abmelden</button></div>`;
       return;
@@ -177,6 +202,15 @@ export function initAccount(opts: { onOpen: () => void; onChange: () => void; to
         Ein Konto gibt es nur mit Einladungslink. <a href="#" data-acc="to-signup">Konto erstellen</a></p>`;
   }
 
+  async function refreshShares() {
+    try {
+      shares = await listShares();
+    } catch {
+      /* not critical */
+    }
+    render();
+  }
+
   async function refreshInvites() {
     if (!profile?.isAdmin) return;
     try {
@@ -195,6 +229,7 @@ export function initAccount(opts: { onOpen: () => void; onChange: () => void; to
     opts.onOpen();
     render();
     if (profile?.isAdmin) void refreshInvites();
+    if (profile) void refreshShares();
     panel.querySelector<HTMLInputElement>('input:not([readonly])')?.focus();
   }
 
@@ -209,6 +244,7 @@ export function initAccount(opts: { onOpen: () => void; onChange: () => void; to
     else if (act === 'to-signup') { view = 'signup'; error = ''; render(); }
     else if (act === 'select') (el as HTMLInputElement).select();
     else if (act === 'logout') {
+      await opts.beforeLogout?.().catch(() => {});
       await signOut();
       newInvite = undefined;
       invites = [];
@@ -225,6 +261,23 @@ export function initAccount(opts: { onOpen: () => void; onChange: () => void; to
       }
     } else if (act === 'share' && el.dataset.code) {
       navigator.share?.({ title: 'Einladung zu Forester', text: 'Hier ist dein Einladungslink für Forester:', url: inviteUrl(el.dataset.code) }).catch(() => {});
+    } else if (act === 'copy-share' && el.dataset.token) {
+      const url = shareUrl(el.dataset.token);
+      try {
+        await navigator.clipboard.writeText(url);
+        opts.toast('Link kopiert.');
+      } catch {
+        prompt('Link kopieren:', url);
+      }
+    } else if (act === 'delete-share' && el.dataset.token) {
+      if (!confirm('Diese geteilte Liste löschen? Der Link funktioniert dann nicht mehr.')) return;
+      try {
+        await deleteShare(el.dataset.token);
+        await refreshShares();
+      } catch (err) {
+        error = (err as Error).message;
+        render();
+      }
     } else if (act === 'delete-invite' && el.dataset.code) {
       if (!confirm('Diese Einladung löschen? Der Link funktioniert dann nicht mehr.')) return;
       try {

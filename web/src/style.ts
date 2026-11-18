@@ -31,6 +31,8 @@ export const L = {
   mineLabel: 'mine-label',
   mineDot: 'mine-dot',
   flagDots: ['flag-dot-0', 'flag-dot-1', 'flag-dot-2'],
+  sharedFill: 'shared-fill',
+  sharedDot: 'shared-dot',
 } as const;
 
 const GREEN = '#2e7d32';
@@ -78,6 +80,7 @@ export function buildStyle(): Style {
         attribution: KATASTER_ATTRIBUTION,
       },
       selected: { type: 'geojson', data: EMPTY_FC },
+      shared: { type: 'geojson', data: EMPTY_FC },
       mine: { type: 'geojson', data: EMPTY_FC },
     },
     layers: [
@@ -195,6 +198,30 @@ export function buildStyle(): Style {
           'circle-translate': [slot * 17 - 17, 16] as [number, number],
         },
       })),
+
+      // A list someone shared (?share=…), drawn in teal / its first flag's colour
+      {
+        id: L.sharedFill,
+        type: 'fill',
+        source: 'shared',
+        filter: ['==', ['get', 'kind'], 'area'],
+        paint: { 'fill-color': ['get', 'color'], 'fill-opacity': 0.22 },
+      },
+      {
+        id: 'shared-line',
+        type: 'line',
+        source: 'shared',
+        filter: ['==', ['get', 'kind'], 'area'],
+        paint: { 'line-color': ['get', 'color'], 'line-width': 2.5, 'line-dasharray': [2, 1] },
+      },
+      {
+        id: L.sharedDot,
+        type: 'circle',
+        source: 'shared',
+        maxzoom: 13,
+        filter: ['==', ['get', 'kind'], 'point'],
+        paint: { 'circle-color': ['get', 'color'], 'circle-radius': 6, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 },
+      },
 
       // Selected parcel
       {

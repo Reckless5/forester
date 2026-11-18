@@ -12,6 +12,8 @@ export interface Flag {
   type: FlagType;
   /** When the flag was set (ISO date-time). */
   since: string;
+  /** Set when the flag came from someone else's report that the owner accepted. */
+  reportedBy?: string;
 }
 
 export const flagDef = (type: FlagType) => FLAGS.find((f) => f.type === type)!;

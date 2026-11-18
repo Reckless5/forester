@@ -1,0 +1,16 @@
+{
+  "name": "Forester – Waldgrundstücke",
+  "short_name": "Forester",
+  "description": "Karte der Waldgrundstücke in Österreich: eigene Grundstücke finden, markieren und teilen.",
+  "lang": "de-AT",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1b5e20",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

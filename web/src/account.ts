@@ -201,3 +201,114 @@ export function parcelRemote(userId: string): Remote {
     },
   };
 }
+
+// ---------- Shared lists ----------
+export interface SharedList {
+  title: string;
+  createdAt: string;
+  expiresAt: string;
+  ownerName: string;
+  parcels: SavedParcel[];
+}
+
+export interface ShareInfo {
+  token: string;
+  title: string;
+  count: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export const shareUrl = (token: string) => {
+  const url = new window.URL(import.meta.env.BASE_URL, location.origin);
+  url.searchParams.set('share', token);
+  return url.toString();
+};
+
+/** Snapshot of the given parcels that anyone with the link can open. */
+export async function createShare(title: string, parcels: SavedParcel[]): Promise<string> {
+  const snapshot = parcels.map(({ key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned }) => ({
+    key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned,
+  }));
+  const { data, error } = await sb().from('shares').insert({ title, parcels: snapshot }).select('token').single();
+  if (error) throw friendly(error);
+  return data.token as string;
+}
+
+export async function getShare(token: string): Promise<SharedList | null> {
+  const { data, error } = await sb().rpc('get_share', { share_token: token });
+  if (error) throw friendly(error);
+  return (data as SharedList | null) ?? null;
+}
+
+export async function listShares(): Promise<ShareInfo[]> {
+  const { data, error } = await sb()
+    .from('shares')
+    .select('token, title, parcels, created_at, expires_at')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (error) throw friendly(error);
+  return (data ?? []).map((r) => ({
+    token: r.token,
+    title: r.title,
+    count: Array.isArray(r.parcels) ? r.parcels.length : 0,
+    createdAt: r.created_at,
+    expiresAt: r.expires_at,
+  }));
+}
+
+export async function deleteShare(token: string) {
+  const { error } = await sb().from('shares').delete().eq('token', token);
+  if (error) throw friendly(error);
+}
+
+// ---------- Flag reports (others flagged one of my parcels) ----------
+export interface FlagReport {
+  id: string;
+  parcelKey: string;
+  parcelName: string | null;
+  flagType: Flag['type'];
+  reporterName: string | null;
+  createdAt: string;
+}
+
+export async function listPendingReports(): Promise<FlagReport[]> {
+  const { data, error } = await sb()
+    .from('flag_reports')
+    .select('id, parcel_key, parcel_name, flag_type, reporter_name, created_at')
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw friendly(error);
+  return (data ?? []).map((r) => ({
+    id: r.id,
+    parcelKey: r.parcel_key,
+    parcelName: r.parcel_name,
+    flagType: r.flag_type,
+    reporterName: r.reporter_name,
+    createdAt: r.created_at,
+  }));
+}
+
+export async function resolveReport(id: string, accept: boolean) {
+  const { error } = await sb().rpc('resolve_flag_report', { report_id: id, accept });
+  if (error) throw friendly(error);
+}
+
+// ---------- Push ----------
+export const notifyFunctionUrl = () => `${URL}/functions/v1/notify-flag-report`;
+export const supabaseKey = () => KEY!;
+
+export async function registerPush(sub: PushSubscription) {
+  const json = sub.toJSON();
+  const { error } = await sb().rpc('register_push', {
+    sub_endpoint: sub.endpoint,
+    sub_p256dh: json.keys?.p256dh ?? '',
+    sub_auth: json.keys?.auth ?? '',
+  });
+  if (error) throw friendly(error);
+}
+
+export async function unregisterPush(endpoint: string) {
+  const { error } = await sb().from('push_subscriptions').delete().eq('endpoint', endpoint);
+  if (error) throw friendly(error);
+}
