@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b5e20" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Forester – Waldgrundstücke</title>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <header class="topbar">
+      <h1>Forester</h1>
+      <div class="topbar-actions">
+        <button id="btn-layer" type="button">Luftbild</button>
+        <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span></button>
+      </div>
+    </header>
+
+    <div class="chips">
+      <div id="chip-here" class="chip chip-here" hidden></div>
+      <div id="chip-zoom" class="chip" hidden>Hineinzoomen, um Grundstücksgrenzen zu sehen</div>
+    </div>
+
+    <section id="sheet" class="sheet" hidden aria-live="polite"></section>
+
+    <section id="drawer" class="drawer" hidden>
+      <div class="drawer-head">
+        <h2>Meine Grundstücke</h2>
+        <button id="btn-drawer-close" type="button" class="icon" aria-label="Schließen">✕</button>
+      </div>
+      <ul id="mine-list" class="mine-list"></ul>
+      <div class="drawer-foot">
+        <button id="btn-fit-all" type="button">Alle anzeigen</button>
+        <button id="btn-export" type="button">Sichern</button>
+        <label class="button">Laden<input id="input-import" type="file" accept="application/json,.json" hidden /></label>
+      </div>
+      <p class="fineprint">
+        Gespeichert nur auf diesem Gerät. Mit „Sichern“ eine Datei als Backup herunterladen.
+      </p>
+    </section>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

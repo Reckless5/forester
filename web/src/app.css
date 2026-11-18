@@ -1,0 +1,149 @@
+:root {
+  --green: #1b5e20;
+  --blue: #1565c0;
+  --orange: #ef6c00;
+  --red: #c62828;
+  --bg: #ffffff;
+  --text: #1c1c1c;
+  --muted: #5f6368;
+  --line: #e0e0e0;
+  --radius: 14px;
+  --shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+#map { position: fixed; inset: 0; }
+[hidden] { display: none !important; }
+
+button, .button {
+  font: inherit;
+  font-size: 15px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 10px 14px;
+  min-height: 44px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+button.primary { background: var(--green); border-color: var(--green); color: #fff; }
+button.danger { color: var(--red); }
+button.icon { border: none; min-width: 44px; padding: 0; font-size: 18px; color: var(--muted); }
+
+/* Top bar */
+.topbar {
+  position: fixed;
+  top: calc(10px + env(safe-area-inset-top));
+  left: 10px;
+  right: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 6px 6px 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  z-index: 2;
+}
+.topbar h1 { font-size: 17px; margin: 0; color: var(--green); }
+.topbar-actions { display: flex; gap: 6px; }
+#mine-count {
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  padding: 0 7px;
+  font-size: 13px;
+}
+
+/* Status chips */
+.chips {
+  position: fixed;
+  top: calc(76px + env(safe-area-inset-top));
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 1;
+}
+.chip {
+  background: rgba(28, 28, 28, 0.8);
+  color: #fff;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.chip-here { background: var(--blue); font-weight: 600; }
+
+/* Bottom sheet */
+.sheet, .drawer {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--bg);
+  border-radius: var(--radius) var(--radius) 0 0;
+  box-shadow: var(--shadow);
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
+  z-index: 3;
+}
+@media (min-width: 720px) {
+  .sheet, .drawer {
+    left: 12px;
+    right: auto;
+    bottom: 12px;
+    width: 380px;
+    border-radius: var(--radius);
+  }
+}
+.sheet-head, .drawer-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.sheet h2, .drawer h2 { margin: 0 0 4px; font-size: 19px; }
+.sheet p { margin: 2px 0; color: var(--muted); font-size: 14px; }
+.sheet p.rel { color: var(--blue); font-weight: 600; }
+.sheet p.warn {
+  background: #fff3e0;
+  color: #8a4b00;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 10px 0 0;
+}
+.sheet-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 8px; }
+.sheet-actions .primary { flex: 1 1 auto; }
+.fineprint { font-size: 12px !important; color: var(--muted); margin: 6px 0 0; }
+details { margin-top: 10px; font-size: 13px; color: var(--muted); }
+details pre { background: #f5f5f5; padding: 8px; border-radius: 8px; overflow: auto; font-size: 11px; max-height: 200px; }
+
+/* Saved parcels list */
+.mine-list { list-style: none; margin: 8px 0; padding: 0; }
+.mine-list li + li { border-top: 1px solid var(--line); }
+.mine-list button {
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  text-align: left;
+  padding: 12px 2px;
+  gap: 2px 10px;
+}
+.mine-list strong { grid-column: 1; }
+.mine-list span { grid-column: 1; font-size: 13px; color: var(--muted); }
+.mine-list em { grid-column: 2; grid-row: 1 / span 2; align-self: center; font-style: normal; color: var(--blue); font-weight: 600; font-size: 14px; }
+.mine-list .empty { color: var(--muted); font-size: 14px; padding: 12px 0; line-height: 1.5; }
+.drawer-foot { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* Keep MapLibre controls clear of the top bar */
+.maplibregl-ctrl-top-right { top: env(safe-area-inset-top); }
