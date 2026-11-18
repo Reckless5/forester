@@ -19,6 +19,7 @@ import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
 import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
+import { initSearch } from './search-ui';
 import { isOwned, store, type SavedParcel } from './store';
 import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
 
@@ -447,6 +448,7 @@ menu.addEventListener('change', (e) => {
 
 $('btn-menu').addEventListener('click', () => {
   drawer.hidden = true;
+  search.close();
   renderMenu();
   menu.hidden = !menu.hidden;
 });
@@ -472,11 +474,44 @@ btnLayer.addEventListener('click', () => {
   const orthoOn = map.getLayoutProperty(L.ortho, 'visibility') === 'visible';
   map.setLayoutProperty(L.ortho, 'visibility', orthoOn ? 'none' : 'visible');
   map.setLayoutProperty(L.basemap, 'visibility', orthoOn ? 'visible' : 'none');
-  btnLayer.textContent = orthoOn ? 'Luftbild' : 'Karte';
+  btnLayer.classList.toggle('on', !orthoOn);
+  btnLayer.setAttribute('aria-label', orthoOn ? 'Luftbild' : 'Karte');
 });
+
+// ---------- Search ----------
+const search = initSearch({
+  getCenter: () => map.getCenter().toArray() as LngLat,
+  savedParcels: () => store.all(),
+  showSaved: (p) => {
+    showSaved(p);
+    fitTo(p.geometry.coordinates);
+  },
+  showParcel: (info) => {
+    const saved = store.get(info.key);
+    if (saved) showSaved(saved);
+    else select(info, false);
+    fitTo(info.geometry.coordinates);
+  },
+  fitBBox: ([w, s, e, n], maxZoom) =>
+    map.fitBounds(
+      [
+        [w, s],
+        [e, n],
+      ],
+      { padding: 40, maxZoom },
+    ),
+  flyTo: (center, zoom) => map.flyTo({ center, zoom }),
+  onOpen: () => {
+    menu.hidden = true;
+    drawer.hidden = true;
+  },
+});
+map.on('mousedown', () => search.close());
+map.on('touchstart', () => search.close());
 
 $('btn-mine').addEventListener('click', () => {
   menu.hidden = true;
+  search.close();
   drawer.hidden = !drawer.hidden;
   if (!drawer.hidden) renderList();
 });

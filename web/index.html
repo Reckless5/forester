@@ -11,13 +11,21 @@
     <div id="map"></div>
 
     <header class="topbar">
-      <h1>Forester</h1>
+      <form id="search-form" class="search" role="search" autocomplete="off">
+        <svg class="search-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 1 0 4.2 12.6l4.6 4.6 1.4-1.4-4.6-4.6A7 7 0 0 0 10 3zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></svg>
+        <input id="search-input" type="search" enterkeyhint="search" placeholder="Ort, KG oder Grundstück" aria-label="Suche" />
+        <button id="search-clear" type="button" class="icon" aria-label="Suche leeren" hidden>✕</button>
+      </form>
       <div class="topbar-actions">
-        <button id="btn-layer" type="button">Luftbild</button>
+        <button id="btn-layer" type="button" class="icon layer-btn" aria-label="Luftbild" title="Luftbild / Karte">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5zm-7.6 8.2L2 12.4l10 5 10-5-2.4-1.2L12 15l-7.6-3.8zm0 4L2 16.4l10 5 10-5-2.4-1.2L12 19l-7.6-3.8z"/></svg>
+        </button>
         <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span></button>
         <button id="btn-menu" type="button" class="icon menu-btn" aria-label="Einstellungen">☰</button>
       </div>
     </header>
+
+    <section id="search-results" class="search-results" hidden></section>
 
     <div class="chips">
       <div id="chip-debug" class="chip chip-debug" hidden></div>

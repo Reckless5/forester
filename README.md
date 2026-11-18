@@ -39,6 +39,8 @@ web/                 Web app (Vite + TypeScript + MapLibre GL)
   src/parcel.ts      Works out which parcel was tapped
   src/store.ts       "Meine Grundstücke" (saved in the browser for now)
   src/geo.ts         Geometry helpers (area, distance, point-in-polygon)
+  src/search.ts      Search: KG index, parcel lookup in BEV tiles, places via Photon
+  scripts/build-kg-index.mjs  Builds public/kg-index.json (GitHub Action "Build KG index")
 docs/
   data-sources.md    Where the data comes from, licences, tile layers
 ```
@@ -50,7 +52,7 @@ docs/
 - [x] Saved parcels list with distance and direction, backup/restore as a file
 - [x] Only forest parcels shown (toggle in ☰), debug location for testing
 - [x] Flags on any parcel: Käferbefall, Windwurf, Durchforsten (with date), list filter
-- [ ] Search by KG and parcel number
+- [x] Search: own/flagged parcels, any parcel by KG + number, KGs, places (OpenStreetMap via Photon)
 - [ ] User accounts + backend, so parcels sync across devices
 - [ ] Offline use in the forest (PWA + cached tiles)
 

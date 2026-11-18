@@ -44,6 +44,20 @@ GeoPackage (`KAT_DKM_GST_epsg31287_<YYYYMMDD>.gpkg`, tables `GST`, `NFL`,
 for offline maps, search by parcel number, or server-side processing.
 Spec: [BEV_S_KA_Katastralmappe_Grundstuecksdaten_GPKG](https://www.bev.gv.at/dam/jcr:239729f2-83e1-400e-9e5f-9ff65cc02257/BEV_S_KA_Katastralmappe_Grundstuecksdaten_GPKG_V1.0.pdf).
 
+### KG index
+
+`web/public/kg-index.json` lists all ~7,850 cadastral communities (number, name,
+state, extent). It's generated from the `kg` layer of the zoom-10 tiles by
+`web/scripts/build-kg-index.mjs`, run by the **Build KG index** GitHub Action
+(manually, quarterly, or when the script changes).
+
+## Place search – Photon (OpenStreetMap)
+
+Villages, towns, peaks etc. are searched with [Photon](https://photon.komoot.io)
+(komoot's public instance, OpenStreetMap data © OpenStreetMap contributors, ODbL).
+It's free under fair use, so the app waits 350 ms after typing and needs 3+
+characters. For heavy use we'd host our own instance.
+
 ## Base maps – basemap.at
 
 - Map: `https://mapsneu.wien.gv.at/basemap/geolandbasemap/normal/google3857/{z}/{y}/{x}.png`
