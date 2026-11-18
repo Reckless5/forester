@@ -30,6 +30,15 @@ deployed site (below), not on the local network URL.
 - **GitHub Pages** (optional): every push to `main` builds `web/` and publishes it
   (`.github/workflows/deploy.yml`). One-time setup: **Settings → Pages → Source: GitHub Actions**.
 
+## Accounts (Supabase)
+
+Project `forester` (eu-central-1). Schema in `supabase/migrations/`, applied in order.
+Signups need an invite link (`?invite=<code>`); the first account became admin.
+Admins create invite links in the app (☰ → Konto). Email confirmation is off.
+
+For local development, copy `web/.env.example` to `web/.env.local` and fill in the
+project URL and publishable key (Project Settings → API). Netlify has them set.
+
 ## Project layout
 
 ```
@@ -53,7 +62,7 @@ docs/
 - [x] Only forest parcels shown (toggle in ☰), debug location for testing
 - [x] Flags on any parcel: Käferbefall, Windwurf, Durchforsten (with date), list filter
 - [x] Search: own/flagged parcels, any parcel by KG + number, KGs, places (OpenStreetMap via Photon)
-- [ ] User accounts + backend, so parcels sync across devices
+- [x] User accounts with invite links (Supabase), parcels sync across devices
 - [ ] Offline use in the forest (PWA + cached tiles)
 
 ## Data & licences
