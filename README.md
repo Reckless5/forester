@@ -25,10 +25,11 @@ deployed site (below), not on the local network URL.
 
 ## Deploy
 
-- **Netlify** (project `forester-at`, config in `netlify.toml`): every push to `dev` deploys to
-  https://dev--forester-at.netlify.app
-- **GitHub Pages** (optional): every push to `main` builds `web/` and publishes it
-  (`.github/workflows/deploy.yml`). One-time setup: **Settings → Pages → Source: GitHub Actions**.
+- **Netlify** (project `forester-at`, config in `netlify.toml`):
+  - `main` → live site https://forester-at.netlify.app
+  - `dev` → test site https://dev--forester-at.netlify.app
+- Both use the same Supabase project, so data and accounts are shared.
+- **GitHub Pages**: manual fallback only (`.github/workflows/deploy.yml`).
 
 ## Accounts (Supabase)
 

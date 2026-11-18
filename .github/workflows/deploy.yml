@@ -1,9 +1,8 @@
-name: Deploy web app to GitHub Pages
+name: Deploy web app to GitHub Pages (manual)
 
+# The app is hosted on Netlify (netlify.toml). This GitHub Pages deploy is
+# kept as a manual fallback only; enable Pages and run it by hand if needed.
 on:
-  push:
-    branches: [main]
-    paths: ['web/**', '.github/workflows/deploy.yml']
   workflow_dispatch:
 
 permissions:
