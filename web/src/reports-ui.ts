@@ -22,17 +22,16 @@ export function initReports(opts: {
   isLoggedIn: () => boolean;
   showParcel: (key: string) => void;
   openList: () => void;
+  onChange: () => void;
   toast: (msg: string) => void;
 }) {
   const box = document.getElementById('reports') as HTMLElement;
-  const badge = document.getElementById('reports-badge') as HTMLElement;
   let reports: FlagReport[] = [];
   let highlight: string | undefined = new URLSearchParams(location.search).get('report') ?? undefined;
   let busy = new Set<string>();
 
   function render() {
-    badge.hidden = !reports.length;
-    badge.textContent = String(reports.length);
+    opts.onChange();
     if (!reports.length) {
       box.innerHTML = '';
       return;
@@ -125,5 +124,11 @@ export function initReports(opts: {
     if (document.visibilityState === 'visible') void refresh();
   });
 
-  return { refresh };
+  return {
+    refresh,
+    count: () => reports.length,
+    /** Parcels with a report waiting for me, for their status in the overview. */
+    pendingKeys: () => new Set(reports.map((r) => r.parcelKey)),
+    render,
+  };
 }

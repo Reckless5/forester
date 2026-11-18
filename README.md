@@ -51,7 +51,9 @@ web/                 Web app (Vite + TypeScript + MapLibre GL)
   src/main.ts        Map setup, UI, GPS
   src/style.ts       Map layers (base map, forest, parcels, my parcels)
   src/parcel.ts      Works out which parcel was tapped
-  src/store.ts       "Meine Grundstücke" (saved in the browser for now)
+  src/store.ts       Saved parcels + groups (device or account, synced)
+  src/overview-ui.ts "Übersicht" tab: groups, status, received, reports
+  src/dialog.ts      Action menus and pickers
   src/geo.ts         Geometry helpers (area, distance, point-in-polygon)
   src/search.ts      Search: KG index, parcel lookup in BEV tiles, places via Photon
   scripts/build-kg-index.mjs  Builds public/kg-index.json (GitHub Action "Build KG index")
@@ -70,6 +72,8 @@ docs/
 - [x] User accounts with invite links (Supabase), parcels sync across devices
 - [x] Share a list of parcels by link (no account needed to view)
 - [x] Reports: flags others set on your parcels need your confirmation; Web Push notification
+- [x] Bottom tab bar (Karte / Übersicht / Mehr); overview of all parcels with status
+- [x] Groups to sort parcels; send a group or one parcel to another member (push + "Erhalten")
 - [ ] Offline use in the forest (PWA + cached tiles)
 
 ## Data & licences

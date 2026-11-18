@@ -4,7 +4,7 @@
 
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js';
 import type { Flag } from './flags';
-import type { Remote, SavedParcel } from './store';
+import type { Group, Remote, SavedParcel } from './store';
 
 const URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
 const KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
@@ -148,6 +148,7 @@ interface ParcelRow {
   center: SavedParcel['center'];
   area_m2: number;
   saved_at: string;
+  group_id: string | null;
 }
 
 const toRow = (p: SavedParcel, userId: string) => ({
@@ -163,6 +164,7 @@ const toRow = (p: SavedParcel, userId: string) => ({
   center: p.center,
   area_m2: p.areaM2,
   saved_at: p.savedAt,
+  group_id: p.groupId ?? null,
 });
 
 const fromRow = (r: ParcelRow): SavedParcel => ({
@@ -177,18 +179,35 @@ const fromRow = (r: ParcelRow): SavedParcel => ({
   center: r.center,
   areaM2: r.area_m2,
   savedAt: r.saved_at,
+  groupId: r.group_id ?? undefined,
 });
 
 export async function loadParcels(): Promise<SavedParcel[]> {
   const { data, error } = await sb()
     .from('parcels')
-    .select('key, name, kg_nr, kg_name, gnr, owned, flags, geometry, center, area_m2, saved_at');
+    .select('key, name, kg_nr, kg_name, gnr, owned, flags, geometry, center, area_m2, saved_at, group_id');
   if (error) throw friendly(error);
   return (data as ParcelRow[]).map(fromRow);
 }
 
+export async function loadGroups(): Promise<Group[]> {
+  const { data, error } = await sb().from('parcel_groups').select('id, name, sort');
+  if (error) throw friendly(error);
+  return (data ?? []) as Group[];
+}
+
 export function parcelRemote(userId: string): Remote {
   return {
+    async upsertGroups(groups) {
+      const { error } = await sb()
+        .from('parcel_groups')
+        .upsert(groups.map((g) => ({ id: g.id, user_id: userId, name: g.name, sort: g.sort })), { onConflict: 'id' });
+      if (error) throw friendly(error);
+    },
+    async removeGroups(ids) {
+      const { error } = await sb().from('parcel_groups').delete().eq('user_id', userId).in('id', ids);
+      if (error) throw friendly(error);
+    },
     async upsert(parcels) {
       const { error } = await sb()
         .from('parcels')
@@ -226,11 +245,15 @@ export const shareUrl = (token: string) => {
 };
 
 /** Snapshot of the given parcels that anyone with the link can open. */
-export async function createShare(title: string, parcels: SavedParcel[]): Promise<string> {
+export async function createShare(title: string, parcels: SavedParcel[], recipientId?: string): Promise<string> {
   const snapshot = parcels.map(({ key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned }) => ({
     key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned,
   }));
-  const { data, error } = await sb().from('shares').insert({ title, parcels: snapshot }).select('token').single();
+  const { data, error } = await sb()
+    .from('shares')
+    .insert({ title, parcels: snapshot, recipient_id: recipientId ?? null })
+    .select('token')
+    .single();
   if (error) throw friendly(error);
   return data.token as string;
 }
@@ -245,6 +268,7 @@ export async function listShares(): Promise<ShareInfo[]> {
   const { data, error } = await sb()
     .from('shares')
     .select('token, title, parcels, created_at, expires_at')
+    .is('recipient_id', null)
     .order('created_at', { ascending: false })
     .limit(50);
   if (error) throw friendly(error);
@@ -310,5 +334,50 @@ export async function registerPush(sub: PushSubscription) {
 
 export async function unregisterPush(endpoint: string) {
   const { error } = await sb().from('push_subscriptions').delete().eq('endpoint', endpoint);
+  if (error) throw friendly(error);
+}
+
+// ---------- Sending to other members ----------
+export interface Member {
+  id: string;
+  displayName: string;
+}
+
+export async function listMembers(): Promise<Member[]> {
+  const { data, error } = await sb().rpc('list_members');
+  if (error) throw friendly(error);
+  return (data ?? []).map((m: { id: string; display_name: string }) => ({ id: m.id, displayName: m.display_name }));
+}
+
+export interface Received {
+  token: string;
+  title: string;
+  count: number;
+  fromName: string;
+  createdAt: string;
+  seen: boolean;
+}
+
+export async function listReceived(): Promise<Received[]> {
+  const { data, error } = await sb().rpc('received_shares');
+  if (error) throw friendly(error);
+  return (data ?? []).map(
+    (r: { token: string; title: string; item_count: number; from_name: string; created_at: string; seen: boolean }) => ({
+      token: r.token,
+      title: r.title,
+      count: r.item_count,
+      fromName: r.from_name,
+      createdAt: r.created_at,
+      seen: r.seen,
+    }),
+  );
+}
+
+export async function markReceivedSeen(token: string) {
+  await sb().rpc('mark_share_seen', { share_token: token });
+}
+
+export async function deleteReceived(token: string) {
+  const { error } = await sb().from('shares').delete().eq('token', token);
   if (error) throw friendly(error);
 }

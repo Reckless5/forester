@@ -1,6 +1,7 @@
 // Sharing a list of parcels by link, and showing a list someone shared (?share=…).
 
-import { accountsEnabled, createShare, getShare, shareUrl, type SharedList } from './account';
+import { accountsEnabled, createShare, getShare, listMembers, shareUrl, type SharedList } from './account';
+import { choose } from './dialog';
 import { flagDef, sortFlags } from './flags';
 import { formatArea, type LngLat } from './geo';
 import type { SavedParcel } from './store';
@@ -15,11 +16,44 @@ const parcelLine = (p: SavedParcel) => {
   return `• ${name}${where}${flags ? ` – ${flags}` : ''}`;
 };
 
+/** Send parcels (a group or a single one) to another member; they find it under "Erhalten". */
+export async function sendToMember(
+  parcels: SavedParcel[],
+  title: string,
+  opts: { isLoggedIn: boolean; toast: (m: string) => void },
+) {
+  if (!accountsEnabled || !opts.isLoggedIn) {
+    opts.toast('Zum Senden bitte anmelden (Mehr → Anmelden).');
+    return;
+  }
+  if (!parcels.length) {
+    opts.toast('Da ist nichts zum Senden.');
+    return;
+  }
+  try {
+    const members = await listMembers();
+    const id = await choose(
+      `„${title}“ senden an …`,
+      members.map((m) => ({ id: m.id, label: m.displayName })),
+      {
+        search: members.length > 6,
+        hint: `${parcels.length} Grundstück${parcels.length === 1 ? '' : 'e'}. Die Person bekommt eine Nachricht und findet es in der Übersicht unter „Erhalten“.`,
+        empty: 'Noch keine anderen Mitglieder. Lade jemanden ein (Mehr → Einladungen).',
+      },
+    );
+    if (!id) return;
+    await createShare(title, parcels, id);
+    opts.toast(`An ${members.find((m) => m.id === id)?.displayName ?? 'Mitglied'} gesendet.`);
+  } catch (e) {
+    opts.toast((e as Error).message);
+  }
+}
+
 /** Create a link for these parcels and hand it to the phone's share sheet (or copy it). */
 export async function shareParcels(
   parcels: SavedParcel[],
   defaultTitle: string,
-  opts: { isLoggedIn: boolean; toast: (m: string) => void },
+  opts: { isLoggedIn: boolean; toast: (m: string) => void; askTitle?: boolean },
 ) {
   if (!accountsEnabled || !opts.isLoggedIn) {
     opts.toast('Zum Teilen bitte anmelden (☰ → Anmelden).');
@@ -29,7 +63,7 @@ export async function shareParcels(
     opts.toast('Die Liste ist leer.');
     return;
   }
-  const title = prompt('Titel der Liste:', defaultTitle)?.trim();
+  const title = opts.askTitle === false ? defaultTitle : prompt('Titel der Liste:', defaultTitle)?.trim();
   if (!title) return;
   try {
     const url = shareUrl(await createShare(title, parcels));
@@ -146,6 +180,7 @@ export function initSharedView(opts: {
   const token = new URLSearchParams(location.search).get('share');
   return {
     openFromUrl: () => (token ? open(token) : undefined),
+    open,
     isOpen: () => !panel.hidden && !!list,
     refreshDistances: () => render(),
     /** Step aside while a parcel card is shown … */

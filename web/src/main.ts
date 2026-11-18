@@ -16,13 +16,14 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { AUSTRIA_BOUNDS, AUSTRIA_CENTER, PARCEL_MINZOOM } from './config';
 import { bbox, bearingDeg, compass, distanceM, formatArea, formatDistance, pointInPolygons, type LngLat } from './geo';
 import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
+import { initOverview } from './overview-ui';
 import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
 import { initAccount } from './account-ui';
 import { claimPushForAccount, disablePush, enablePush, pushState, registerServiceWorker, type PushState } from './push';
 import { initReports } from './reports-ui';
-import { initSharedView, shareParcels } from './share-ui';
+import { initSharedView, sendToMember, shareParcels } from './share-ui';
 import { initSearch } from './search-ui';
 import { isOwned, store, type SavedParcel } from './store';
 import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
@@ -30,8 +31,6 @@ import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } 
 // ---------- DOM ----------
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const sheet = $('sheet');
-const drawer = $('drawer');
-const list = $('mine-list');
 const chipHere = $('chip-here');
 const chipZoom = $('chip-zoom');
 const btnLayer = $<HTMLButtonElement>('btn-layer');
@@ -72,11 +71,13 @@ map.addControl(geolocate, 'top-right');
 let myPos: LngLat | undefined;
 let gpsPos: LngLat | undefined;
 let placingDebugPos = false;
-let listFilter: FlagType | 'all' = 'all';
 const openingLink = /[?&](share|report)=/.test(location.search);
 let loggedIn = false;
-let visibleParcels: SavedParcel[] = [];
 let sharedView: ReturnType<typeof initSharedView> | undefined;
+let overview: ReturnType<typeof initOverview> | undefined;
+let reports: ReturnType<typeof initReports> | undefined;
+type Tab = 'map' | 'overview' | 'more';
+let tab: Tab = 'map';
 let selected: { info: ParcelInfo | SavedParcel; saved: boolean } | undefined;
 
 // ---------- Helpers ----------
@@ -123,7 +124,6 @@ function parcelSub(p: { kgName?: string; kgNr?: string }) {
 const FLAG_SLOTS = [[], [1], [0, 2], [0, 1, 2]];
 
 store.subscribe((parcels) => {
-  $('mine-count').textContent = String(parcels.filter(isOwned).length);
   const features: GeoJSON.Feature[] = [];
   for (const p of parcels) {
     const owned = isOwned(p);
@@ -145,75 +145,10 @@ store.subscribe((parcels) => {
   }
   if (map.isStyleLoaded()) setSource('mine', { type: 'FeatureCollection', features });
   else map.once('load', () => setSource('mine', { type: 'FeatureCollection', features }));
-  renderList();
+  if (tab === 'overview') overview?.render();
   updateHere();
 });
 
-function flagPills(p: SavedParcel) {
-  const flags = sortFlags(p.flags);
-  return flags.length
-    ? `<span class="pills">${flags
-        .map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`)
-        .join('')}</span>`
-    : '';
-}
-
-function listItem(p: SavedParcel) {
-  return `
-      <li><button type="button" data-key="${esc(p.key)}">
-        <strong>${esc(p.name)}</strong>
-        <span>${esc([isOwned(p) ? parcelTitle(p) : '', parcelSub(p), formatArea(p.areaM2)].filter(Boolean).join(' · '))}</span>
-        ${flagPills(p)}
-        ${myPos ? `<em>${esc(relativeTo(p))}</em>` : ''}
-      </button></li>`;
-}
-
-function renderList() {
-  $('storage-note').textContent = loggedIn
-    ? 'Im Konto gespeichert – auf allen Geräten verfügbar, auf denen du angemeldet bist.'
-    : 'Gespeichert nur auf diesem Gerät. Mit „Sichern“ eine Datei als Backup herunterladen – oder im Menü anmelden.';
-  const all = store.all();
-  const parcels = all.filter((p) => listFilter === 'all' || p.flags?.some((f) => f.type === listFilter));
-  if (myPos) parcels.sort((a, b) => distanceM(myPos!, a.center) - distanceM(myPos!, b.center));
-  else parcels.sort((a, b) => a.name.localeCompare(b.name, 'de'));
-  const own = parcels.filter(isOwned);
-  const others = parcels.filter((p) => !isOwned(p));
-  visibleParcels = [...own, ...others];
-  const count = (t: FlagType) => all.filter((p) => p.flags?.some((f) => f.type === t)).length;
-
-  $('list-filter').innerHTML = [
-    `<button type="button" data-filter="all" class="${listFilter === 'all' ? 'on' : ''}">Alle</button>`,
-    ...FLAGS.map(
-      (f) =>
-        `<button type="button" data-filter="${f.type}" class="${listFilter === f.type ? 'on' : ''}" style="--c:${f.color}">${esc(f.label)} ${count(f.type)}</button>`,
-    ),
-  ].join('');
-
-  let html = own.map(listItem).join('');
-  if (others.length) html += `<li class="group">Nur markiert</li>` + others.map(listItem).join('');
-  if (!parcels.length)
-    html =
-      listFilter === 'all'
-        ? `<li class="empty">Noch keine Grundstücke gespeichert.<br>Hineinzoomen, auf ein Grundstück tippen und „Als mein Grundstück speichern“ wählen.</li>`
-        : `<li class="empty">Keine Grundstücke mit „${esc(flagDef(listFilter).label)}“.</li>`;
-  list.innerHTML = html;
-}
-
-$('list-filter').addEventListener('click', (e) => {
-  const f = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]')?.dataset.filter;
-  if (!f) return;
-  listFilter = f as FlagType | 'all';
-  renderList();
-});
-
-list.addEventListener('click', (e) => {
-  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-key]');
-  const p = btn && store.get(btn.dataset.key!);
-  if (!p) return;
-  drawer.hidden = true;
-  showSaved(p);
-  fitTo(p.geometry.coordinates);
-});
 
 // ---------- "You are on …" ----------
 function updateHere() {
@@ -381,7 +316,7 @@ map.on('zoomend', updateZoomChip);
 function setMyPos(pos: LngLat | undefined) {
   myPos = pos;
   updateHere();
-  if (!drawer.hidden) renderList();
+  if (tab === 'overview') overview?.render();
   if (sharedView?.isOpen()) sharedView.refreshDistances();
   if (selected && !sheet.hidden) {
     const rel = sheet.querySelector('.rel');
@@ -436,17 +371,14 @@ function toast(msg: string) {
 
 // ---------- Account ----------
 const account = initAccount({
-  onOpen: () => {
-    menu.hidden = true;
-    drawer.hidden = true;
-    search.close();
-  },
+  onOpen: () => setTab('more'),
   onChange: () => {
     loggedIn = !!account?.profile();
     clearSelection();
-    renderList();
-    if (!menu.hidden) renderMenu();
-    void reports.refresh();
+    overview?.render();
+    renderMenu();
+    void reports?.refresh();
+    void overview?.refreshReceived();
     if (loggedIn) void claimPushForAccount();
   },
   beforeLogout: () => disablePush(),
@@ -454,22 +386,63 @@ const account = initAccount({
 });
 
 // ---------- Reports (others flagged my parcels) ----------
-const reports = initReports({
+reports = initReports({
   isLoggedIn: () => loggedIn,
   showParcel: (key) => {
     const p = store.get(key);
-    if (!p) return;
-    drawer.hidden = true;
-    showSaved(p);
-    fitTo(p.geometry.coordinates);
+    if (p) showOnMap(p);
   },
-  openList: () => {
-    menu.hidden = true;
-    account.close();
-    drawer.hidden = false;
-    renderList();
+  openList: () => setTab('overview'),
+  onChange: () => {
+    updateBadge();
+    if (tab === 'overview') overview?.render();
   },
   toast,
+});
+
+// ---------- Tabs ----------
+function showOnMap(p: SavedParcel) {
+  setTab('map');
+  showSaved(p);
+  fitTo(p.geometry.coordinates);
+}
+
+function setTab(next: Tab) {
+  if (next === tab) return;
+  tab = next;
+  document.body.dataset.tab = next;
+  $('page-overview').hidden = next !== 'overview';
+  $('page-more').hidden = next !== 'more';
+  document.querySelectorAll<HTMLButtonElement>('.tabbar [data-tab]').forEach((b) => {
+    const on = b.dataset.tab === next;
+    b.classList.toggle('on', on);
+    if (on) b.setAttribute('aria-current', 'page');
+    else b.removeAttribute('aria-current');
+  });
+  search.close();
+  if (next === 'overview') {
+    overview?.render();
+    void reports?.refresh();
+    void overview?.refreshReceived();
+  } else if (next === 'more') {
+    void refreshPushStatus();
+    renderMenu();
+    account.open();
+  } else {
+    map.resize();
+  }
+}
+
+function updateBadge() {
+  const n = (reports?.count() ?? 0) + (overview?.unseenReceived() ?? 0);
+  const badge = $('tab-badge');
+  badge.hidden = !n;
+  badge.textContent = String(n);
+}
+
+document.querySelector('.tabbar')!.addEventListener('click', (e) => {
+  const b = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
+  if (b) setTab(b.dataset.tab as Tab);
 });
 
 // ---------- Shared lists ----------
@@ -505,32 +478,41 @@ sharedView = initSharedView({
   },
   showParcel: (p) => showSharedParcel(p),
   relativeTo: (p) => relativeTo(p),
-  onOpen: () => {
-    menu.hidden = true;
-    drawer.hidden = true;
-    account.close();
-    search.close();
-  },
+  onOpen: () => setTab('map'),
   toast,
 });
 
-$('btn-share').addEventListener('click', () => {
-  const title = listFilter === 'all' ? 'Meine Grundstücke' : flagDef(listFilter).label;
-  void shareParcels(visibleParcels, title, { isLoggedIn: loggedIn, toast });
+// ---------- Overview ----------
+overview = initOverview({
+  isLoggedIn: () => loggedIn,
+  relativeTo: (p) => relativeTo(p),
+  distance: (p) => (myPos ? distanceM(myPos, p.center) : undefined),
+  pendingKeys: () => reports?.pendingKeys() ?? new Set(),
+  showOnMap,
+  showAllOnMap: (parcels) => {
+    setTab('map');
+    clearSelection();
+    fitTo(parcels.flatMap((p) => p.geometry.coordinates), 16);
+  },
+  openShared: (token) => void sharedView?.open(token),
+  send: (parcels, title) => void sendToMember(parcels, title, { isLoggedIn: loggedIn, toast }),
+  shareLink: (parcels, title) => void shareParcels(parcels, title, { isLoggedIn: loggedIn, toast }),
+  onChange: updateBadge,
+  toast,
 });
 
 // ---------- Push notifications ----------
 let pushStatus: PushState = 'unsupported';
 const refreshPushStatus = async () => {
   pushStatus = await pushState();
-  if (!menu.hidden) renderMenu();
+  if (tab === 'more') renderMenu();
 };
 
 function pushMenuHtml() {
   if (!account.enabled || !loggedIn) return '';
   const hint: Record<PushState, string> = {
-    on: 'Du bekommst eine Nachricht, wenn jemand auf deinen Grundstücken etwas meldet.',
-    off: 'Nachricht bekommen, wenn jemand auf deinen Grundstücken etwas meldet.',
+    on: 'Du bekommst eine Nachricht, wenn jemand auf deinen Grundstücken etwas meldet oder dir Grundstücke schickt.',
+    off: 'Nachricht bekommen, wenn jemand auf deinen Grundstücken etwas meldet oder dir Grundstücke schickt.',
     denied: 'Benachrichtigungen sind für diese Seite im Browser blockiert. Bitte in den Browser-Einstellungen erlauben.',
     'needs-install':
       'Auf dem iPhone: zuerst über „Teilen → Zum Home-Bildschirm“ installieren und die App von dort öffnen.',
@@ -541,35 +523,18 @@ function pushMenuHtml() {
     ${
       canToggle
         ? `<label class="toggle"><input type="checkbox" data-menu="push" ${pushStatus === 'on' ? 'checked' : ''} />
-            <span>Bei Meldungen benachrichtigen</span></label>`
+            <span>Benachrichtigungen</span></label>`
         : ''
     }
     <p class="fineprint">${hint[pushStatus]}</p>`;
 }
 
-function accountMenuHtml() {
-  if (!account.enabled) return '';
-  const p = account.profile();
-  return p
-    ? `<div class="menu-account">
-        <div><strong>${esc(p.displayName || p.email)}</strong><span>Grundstücke werden im Konto gespeichert</span></div>
-        <button type="button" data-menu="account">Konto</button>
-      </div>`
-    : `<div class="menu-account">
-        <div><strong>Nicht angemeldet</strong><span>Grundstücke nur auf diesem Gerät</span></div>
-        <button type="button" class="primary" data-menu="account">Anmelden</button>
-      </div>`;
-}
 
 // ---------- Menu ----------
 function renderMenu() {
   const s = settings.get();
   menu.innerHTML = `
-    <div class="drawer-head">
-      <h2>Einstellungen</h2>
-      <button type="button" class="icon" data-menu="close" aria-label="Schließen">✕</button>
-    </div>
-    ${accountMenuHtml()}
+    <h2>Einstellungen</h2>
     ${pushMenuHtml()}
     <h3>Karte</h3>
     <label class="toggle">
@@ -587,11 +552,9 @@ function renderMenu() {
 
 menu.addEventListener('click', (e) => {
   const act = (e.target as HTMLElement).closest<HTMLElement>('[data-menu]')?.dataset.menu;
-  if (act === 'close') menu.hidden = true;
-  else if (act === 'account') account.open();
-  else if (act === 'placeDebug') {
+  if (act === 'placeDebug') {
     placingDebugPos = true;
-    menu.hidden = true;
+    setTab('map');
     clearSelection();
     chipDebug.hidden = false;
     chipDebug.textContent = 'Tippe auf die Karte, um deinen Standort zu setzen';
@@ -615,14 +578,6 @@ menu.addEventListener('change', (e) => {
   }
 });
 
-$('btn-menu').addEventListener('click', () => {
-  void refreshPushStatus();
-  drawer.hidden = true;
-  account.close();
-  search.close();
-  renderMenu();
-  menu.hidden = !menu.hidden;
-});
 
 geolocate.on('error', () => {
   // No GPS: show saved parcels instead, if any
@@ -675,51 +630,11 @@ const search = initSearch({
       { padding: 40, maxZoom },
     ),
   flyTo: (center, zoom) => map.flyTo({ center, zoom }),
-  onOpen: () => {
-    menu.hidden = true;
-    drawer.hidden = true;
-  },
+  onOpen: () => {},
 });
 map.on('mousedown', () => search.close());
 map.on('touchstart', () => search.close());
 
-$('btn-mine').addEventListener('click', () => {
-  menu.hidden = true;
-  account.close();
-  search.close();
-  drawer.hidden = !drawer.hidden;
-  if (!drawer.hidden) renderList();
-});
-$('btn-drawer-close').addEventListener('click', () => (drawer.hidden = true));
-
-$('btn-fit-all').addEventListener('click', () => {
-  const all = store.all();
-  if (!all.length) return;
-  drawer.hidden = true;
-  fitTo(all.flatMap((p) => p.geometry.coordinates), 16);
-});
-
-$('btn-export').addEventListener('click', () => {
-  const blob = new Blob([store.exportJson()], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `forester-grundstuecke-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-});
-
-$<HTMLInputElement>('input-import').addEventListener('change', async (e) => {
-  const input = e.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = '';
-  if (!file) return;
-  try {
-    const n = store.importJson(await file.text());
-    alert(`${n} Grundstück(e) geladen.`);
-  } catch (err) {
-    alert(`Datei konnte nicht geladen werden: ${(err as Error).message}`);
-  }
-});
 
 // Handy for debugging in the browser console
 Object.assign(window, { forester: { map, store } });

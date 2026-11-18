@@ -1,11 +1,13 @@
-// Sends a Web Push to a parcel owner when someone reports a flag on their parcel.
+// Sends Web Push notifications:
+//  - to a parcel owner when someone reports a flag on their parcel ({ report_id })
+//  - to a user when another user sends them parcels or a group ({ share_token })
 //
 // GET  → { publicKey }: the VAPID public key browsers need to subscribe.
 //        Creates the VAPID key pair on first use and stores it in the database
 //        (private.app_settings), so no secret has to be set by hand.
-// POST → { report_id }, called by the database trigger on public.flag_reports
-//        with the header x-webhook-secret. Pushes to all of the owner's devices
-//        and removes subscriptions the push service says are gone.
+// POST → { report_id } or { share_token }, called by database triggers with the
+//        header x-webhook-secret. Pushes to all of the user's devices and
+//        removes subscriptions the push service says are gone.
 //
 // Deployed with verify_jwt = false: GET is public, POST checks the secret.
 
@@ -70,30 +72,55 @@ Deno.serve(async (req) => {
       return json({ error: 'forbidden' }, 403);
     }
 
-    const { report_id } = await req.json();
-    const { data: report, error } = await db.from('flag_reports').select('*').eq('id', report_id).maybeSingle();
-    if (error) throw error;
-    if (!report || report.status !== 'pending') return json({ skipped: 'no pending report' });
+    const { report_id, share_token } = await req.json();
+    let userId: string;
+    let message: { title: string; body: string; url: string; tag: string };
+
+    if (report_id) {
+      const { data: report, error } = await db.from('flag_reports').select('*').eq('id', report_id).maybeSingle();
+      if (error) throw error;
+      if (!report || report.status !== 'pending') return json({ skipped: 'no pending report' });
+      const flag = FLAG_LABEL[report.flag_type] ?? report.flag_type;
+      const gnr = String(report.parcel_key).split('-').slice(1).join('-');
+      const where = report.parcel_name ? `„${report.parcel_name}“ (Gst. ${gnr})` : `Gst. ${gnr}`;
+      userId = report.owner_id;
+      message = {
+        title: `${flag} gemeldet`,
+        body: `${report.reporter_name ?? 'Jemand'} meldet ${flag} auf ${where}. Bitte bestätigen oder ablehnen.`,
+        url: `./?report=${report.id}`,
+        tag: `report-${report.id}`,
+      };
+    } else if (share_token) {
+      const { data: share, error } = await db
+        .from('shares')
+        .select('token, title, parcels, owner_id, recipient_id')
+        .eq('token', share_token)
+        .maybeSingle();
+      if (error) throw error;
+      if (!share?.recipient_id) return json({ skipped: 'no direct share' });
+      const { data: sender } = await db.from('profiles').select('display_name').eq('id', share.owner_id).maybeSingle();
+      const n = Array.isArray(share.parcels) ? share.parcels.length : 0;
+      userId = share.recipient_id;
+      message = {
+        title: n === 1 ? 'Grundstück erhalten' : 'Grundstücke erhalten',
+        body: `${sender?.display_name ?? 'Jemand'} hat dir „${share.title}“ geschickt (${n} Grundstück${n === 1 ? '' : 'e'}).`,
+        url: `./?share=${share.token}`,
+        tag: `share-${share.token}`,
+      };
+    } else {
+      return json({ error: 'report_id or share_token required' }, 400);
+    }
 
     const { data: subs, error: subErr } = await db
       .from('push_subscriptions')
       .select('endpoint, p256dh, auth')
-      .eq('user_id', report.owner_id);
+      .eq('user_id', userId);
     if (subErr) throw subErr;
-    if (!subs?.length) return json({ sent: 0, note: 'owner has no push subscriptions' });
+    if (!subs?.length) return json({ sent: 0, note: 'user has no push subscriptions' });
 
     const { publicKey, privateKey } = await vapidKeys();
     webpush.setVapidDetails('mailto:noreply@forester.invalid', publicKey, privateKey);
-
-    const flag = FLAG_LABEL[report.flag_type] ?? report.flag_type;
-    const gnr = String(report.parcel_key).split('-').slice(1).join('-');
-    const where = report.parcel_name ? `„${report.parcel_name}“ (Gst. ${gnr})` : `Gst. ${gnr}`;
-    const payload = JSON.stringify({
-      title: `${flag} gemeldet`,
-      body: `${report.reporter_name ?? 'Jemand'} meldet ${flag} auf ${where}. Bitte bestätigen oder ablehnen.`,
-      url: `./?report=${report.id}`,
-      tag: `report-${report.id}`,
-    });
+    const payload = JSON.stringify(message);
 
     let sent = 0;
     const gone: string[] = [];

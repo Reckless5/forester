@@ -1,5 +1,5 @@
-// Parcels the user keeps: their own ("Meine Grundstücke") and any parcel
-// they've flagged.
+// Parcels the user keeps – their own ("Meine Grundstücke") and any parcel
+// they've flagged – and the groups they sort them into.
 //
 // Not logged in: kept on this device (localStorage).
 // Logged in: kept in Supabase; every change is sent there (see `Remote`), and a
@@ -23,6 +23,14 @@ export interface SavedParcel {
   /** False for a parcel that's only kept because it's flagged. Missing = true (older data). */
   owned?: boolean;
   flags?: Flag[];
+  /** The group it's sorted into, if any. */
+  groupId?: string;
+}
+
+export interface Group {
+  id: string;
+  name: string;
+  sort: number;
 }
 
 export const isOwned = (p: SavedParcel) => p.owned !== false;
@@ -34,21 +42,29 @@ const now = () => new Date().toISOString();
 const pickData = ({ key, kgName, kgNr, gnr, geometry, center, areaM2 }: ParcelData): ParcelData => ({
   key, kgName, kgNr, gnr, geometry, center, areaM2,
 });
+const newId = () =>
+  crypto.randomUUID?.() ??
+  '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+    (Number(c) ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))).toString(16),
+  );
 
 const LOCAL_KEY = 'forester.parcels.v1';
 const accountKey = (userId: string) => `forester.parcels.account.${userId}`;
+const groupsKey = (key: string) => `${key}.groups`;
 
 /** Where changes go when logged in. */
 export interface Remote {
   upsert(parcels: SavedParcel[]): Promise<void>;
   remove(keys: string[]): Promise<void>;
+  upsertGroups(groups: Group[]): Promise<void>;
+  removeGroups(ids: string[]): Promise<void>;
 }
 
 type Listener = (parcels: SavedParcel[]) => void;
 const listeners = new Set<Listener>();
 let onRemoteError: (e: Error) => void = (e) => console.error(e);
 
-function readKey(key: string): SavedParcel[] {
+function readArray<T>(key: string): T[] {
   try {
     const raw = localStorage.getItem(key);
     const data = raw ? JSON.parse(raw) : [];
@@ -60,50 +76,70 @@ function readKey(key: string): SavedParcel[] {
 
 let storageKey = LOCAL_KEY;
 let remote: Remote | undefined;
-let parcels: SavedParcel[] = readKey(LOCAL_KEY);
+let parcels: SavedParcel[] = readArray(LOCAL_KEY);
+let groups: Group[] = readArray(groupsKey(LOCAL_KEY));
+
+// Remote changes run one after another, so a new group exists before a parcel is moved into it.
+let queue: Promise<unknown> = Promise.resolve();
+const enqueue = (op: () => Promise<void>) => {
+  queue = queue.then(op).catch((e) => onRemoteError(e));
+};
 
 function persist() {
   try {
     localStorage.setItem(storageKey, JSON.stringify(parcels));
+    localStorage.setItem(groupsKey(storageKey), JSON.stringify(groups));
   } catch (e) {
     console.error('Could not save parcels', e);
     if (!remote) alert('Speichern fehlgeschlagen – ist der Speicher des Browsers voll oder gesperrt?');
   }
 }
 
-/** Apply a change: store it, tell listeners, and send what changed to the account. */
-function write(prev: SavedParcel[] = parcels) {
-  persist();
-  listeners.forEach((l) => l(parcels));
-  if (!remote) return;
-  const before = new Map(prev.map((p) => [p.key, p]));
-  const changed = parcels.filter((p) => before.get(p.key) !== p);
-  const keys = new Set(parcels.map((p) => p.key));
-  const removed = prev.filter((p) => !keys.has(p.key)).map((p) => p.key);
-  if (changed.length) remote.upsert(changed).catch(onRemoteError);
-  if (removed.length) remote.remove(removed).catch(onRemoteError);
+const notify = () => listeners.forEach((l) => l(parcels));
+
+function diff<T>(prev: T[], next: T[], id: (x: T) => string) {
+  const before = new Map(prev.map((x) => [id(x), x]));
+  const ids = new Set(next.map(id));
+  return {
+    changed: next.filter((x) => before.get(id(x)) !== x),
+    removed: prev.filter((x) => !ids.has(id(x))).map(id),
+  };
 }
 
-function set(next: SavedParcel[]) {
-  const prev = parcels;
-  parcels = next;
-  write(prev);
+/** Apply a change: store it, tell listeners, and send what changed to the account. */
+function set(next: { parcels?: SavedParcel[]; groups?: Group[] }) {
+  const prevParcels = parcels;
+  const prevGroups = groups;
+  if (next.parcels) parcels = next.parcels;
+  if (next.groups) groups = next.groups;
+  persist();
+  notify();
+  const r = remote;
+  if (!r) return;
+  const g = diff(prevGroups, groups, (x) => x.id);
+  const p = diff(prevParcels, parcels, (x) => x.key);
+  if (g.changed.length) enqueue(() => r.upsertGroups(g.changed));
+  if (p.changed.length) enqueue(() => r.upsert(p.changed));
+  if (p.removed.length) enqueue(() => r.remove(p.removed));
+  if (g.removed.length) enqueue(() => r.removeGroups(g.removed));
 }
+
+const byOrder = (a: Group, b: Group) => a.sort - b.sort || a.name.localeCompare(b.name, 'de');
 
 export const store = {
   all: () => parcels,
   get: (key: string) => parcels.find((p) => p.key === key),
   has: (key: string) => parcels.some((p) => p.key === key),
   save(p: SavedParcel) {
-    set([...parcels.filter((x) => x.key !== p.key), p]);
+    set({ parcels: [...parcels.filter((x) => x.key !== p.key), p] });
   },
   rename(key: string, name: string) {
-    set(parcels.map((p) => (p.key === key ? { ...p, name } : p)));
+    set({ parcels: parcels.map((p) => (p.key === key ? { ...p, name } : p)) });
   },
   remove(key: string) {
-    set(parcels.filter((p) => p.key !== key));
+    set({ parcels: parcels.filter((p) => p.key !== key) });
   },
-  /** Mark as own parcel (keeps any flags). */
+  /** Mark as own parcel (keeps any flags and its group). */
   own(data: ParcelData, name: string): SavedParcel {
     const cur = parcels.find((p) => p.key === data.key);
     const p: SavedParcel = { ...cur, ...pickData(data), name, owned: true, savedAt: cur?.savedAt ?? now() };
@@ -134,66 +170,102 @@ export const store = {
     this.save(p);
     return p;
   },
+
+  // ----- Groups -----
+  groups: () => [...groups].sort(byOrder),
+  group: (id?: string) => groups.find((g) => g.id === id),
+  addGroup(name: string): Group {
+    const g: Group = { id: newId(), name: name.trim(), sort: groups.reduce((m, x) => Math.max(m, x.sort), 0) + 1 };
+    set({ groups: [...groups, g] });
+    return g;
+  },
+  renameGroup(id: string, name: string) {
+    set({ groups: groups.map((g) => (g.id === id ? { ...g, name: name.trim() } : g)) });
+  },
+  /** Delete a group; its parcels stay, without a group. */
+  deleteGroup(id: string) {
+    set({
+      parcels: parcels.map((p) => (p.groupId === id ? { ...p, groupId: undefined } : p)),
+      groups: groups.filter((g) => g.id !== id),
+    });
+  },
+  moveToGroup(key: string, groupId: string | undefined) {
+    set({ parcels: parcels.map((p) => (p.key === key ? { ...p, groupId } : p)) });
+  },
+
   subscribe(l: Listener) {
     listeners.add(l);
     l(parcels);
     return () => listeners.delete(l);
   },
+
   // ----- Accounts -----
-  /** Switch to an account: show its cached parcels now; call `loaded` once fetched. */
+  /** Switch to an account: show its cached data now; call `loaded` once fetched. */
   useAccount(userId: string, r: Remote) {
     storageKey = accountKey(userId);
     remote = undefined; // the cache isn't a change to send
-    parcels = readKey(storageKey);
-    listeners.forEach((l) => l(parcels));
+    parcels = readArray(storageKey);
+    groups = readArray(groupsKey(storageKey));
+    notify();
     return {
-      loaded(fromServer: SavedParcel[]) {
-        parcels = fromServer;
+      loaded(fromServer: { parcels: SavedParcel[]; groups: Group[] }) {
+        parcels = fromServer.parcels;
+        groups = fromServer.groups;
         persist();
         remote = r;
-        listeners.forEach((l) => l(parcels));
+        notify();
       },
     };
   },
-  /** Replace with a fresh copy from the account (e.g. after the server changed flags). */
+  /** Replace parcels with a fresh copy from the account (e.g. after the server changed flags). */
   reloaded(fromServer: SavedParcel[]) {
     parcels = fromServer;
     persist();
-    listeners.forEach((l) => l(parcels));
+    notify();
   },
-  /** Back to the parcels kept on this device without an account. */
+  /** Back to the data kept on this device without an account. */
   useLocal() {
     storageKey = LOCAL_KEY;
     remote = undefined;
-    parcels = readKey(LOCAL_KEY);
-    listeners.forEach((l) => l(parcels));
+    parcels = readArray(LOCAL_KEY);
+    groups = readArray(groupsKey(LOCAL_KEY));
+    notify();
   },
-  /** Parcels saved on this device without an account (to offer uploading them). */
-  deviceParcels: () => readKey(LOCAL_KEY),
-  clearDeviceParcels() {
+  /** Data saved on this device without an account (to offer uploading it). */
+  deviceData: () => ({ parcels: readArray<SavedParcel>(LOCAL_KEY), groups: readArray<Group>(groupsKey(LOCAL_KEY)) }),
+  clearDeviceData() {
     localStorage.removeItem(LOCAL_KEY);
+    localStorage.removeItem(groupsKey(LOCAL_KEY));
   },
-  /** Add parcels to the current account; keeps the account's version where both exist. */
-  addMissing(incoming: SavedParcel[]) {
+  /** Add parcels and groups to the current account; keeps the account's version where both exist. */
+  addMissing(incoming: { parcels: SavedParcel[]; groups?: Group[] }) {
+    const haveGroups = new Set(groups.map((g) => g.id));
+    const addGroups = (incoming.groups ?? []).filter((g) => !haveGroups.has(g.id));
+    const allGroupIds = new Set([...haveGroups, ...addGroups.map((g) => g.id)]);
     const have = new Set(parcels.map((p) => p.key));
-    const add = incoming.filter((p) => !have.has(p.key));
-    if (add.length) set([...parcels, ...add]);
+    const add = incoming.parcels
+      .filter((p) => !have.has(p.key))
+      .map((p) => (p.groupId && !allGroupIds.has(p.groupId) ? { ...p, groupId: undefined } : p));
+    if (add.length || addGroups.length) set({ parcels: [...parcels, ...add], groups: [...groups, ...addGroups] });
     return add.length;
   },
   onRemoteError(fn: (e: Error) => void) {
     onRemoteError = fn;
   },
   exportJson(): string {
-    return JSON.stringify({ app: 'forester', version: 1, parcels }, null, 2);
+    return JSON.stringify({ app: 'forester', version: 2, parcels, groups }, null, 2);
   },
   importJson(text: string): number {
     const data = JSON.parse(text);
     const incoming: SavedParcel[] = Array.isArray(data) ? data : data?.parcels;
     if (!Array.isArray(incoming)) throw new Error('Keine Grundstücke in der Datei gefunden');
     const valid = incoming.filter((p) => p && typeof p.key === 'string' && p.geometry?.coordinates);
+    const inGroups: Group[] = Array.isArray(data?.groups) ? data.groups.filter((g: Group) => g?.id && g?.name) : [];
+    const groupMap = new Map(groups.map((g) => [g.id, g]));
+    inGroups.forEach((g) => groupMap.set(g.id, g));
     const byKey = new Map(parcels.map((p) => [p.key, p]));
-    valid.forEach((p) => byKey.set(p.key, p));
-    set([...byKey.values()]);
+    valid.forEach((p) => byKey.set(p.key, p.groupId && !groupMap.has(p.groupId) ? { ...p, groupId: undefined } : p));
+    set({ parcels: [...byKey.values()], groups: [...groupMap.values()] });
     return valid.length;
   },
 };

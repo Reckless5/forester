@@ -13,6 +13,7 @@ import {
   type ShareInfo,
   inviteUrl,
   listInvites,
+  loadGroups,
   loadParcels,
   loadProfile,
   onAuthChange,
@@ -72,10 +73,11 @@ export function initAccount(opts: {
     }
     opts.onChange();
     try {
-      sw.loaded(await loadParcels());
+      const [parcels, groups] = await Promise.all([loadParcels(), loadGroups()]);
+      sw.loaded({ parcels, groups });
     } catch (e) {
       opts.toast(`Grundstücke konnten nicht geladen werden: ${(e as Error).message}`);
-      sw.loaded(store.all());
+      sw.loaded({ parcels: store.all(), groups: store.groups() });
     }
     offerDeviceParcels();
     if (view !== 'profile' && !panel.hidden) view = 'profile';
@@ -83,14 +85,14 @@ export function initAccount(opts: {
   }
 
   function offerDeviceParcels() {
-    const local = store.deviceParcels();
-    if (!local.length) return;
+    const local = store.deviceData();
+    if (!local.parcels.length) return;
     const ok = confirm(
-      `Auf diesem Gerät sind ${local.length} Grundstück(e) ohne Konto gespeichert. In dein Konto übernehmen?`,
+      `Auf diesem Gerät sind ${local.parcels.length} Grundstück(e) ohne Konto gespeichert. In dein Konto übernehmen?`,
     );
     if (!ok) return;
     const added = store.addMissing(local);
-    store.clearDeviceParcels();
+    store.clearDeviceData();
     opts.toast(`${added} Grundstück(e) ins Konto übernommen.`);
   }
 
@@ -222,6 +224,10 @@ export function initAccount(opts: {
   }
 
   function open(v?: View) {
+    if (!accountsEnabled) {
+      panel.hidden = true; // app built without Supabase: no accounts
+      return;
+    }
     error = '';
     if (v) view = v;
     if (profile) view = 'profile';
@@ -230,7 +236,8 @@ export function initAccount(opts: {
     render();
     if (profile?.isAdmin) void refreshInvites();
     if (profile) void refreshShares();
-    panel.querySelector<HTMLInputElement>('input:not([readonly])')?.focus();
+    // Only jump into the form when opened for signup (invite link), not on every visit
+    if (v === 'signup') panel.querySelector<HTMLInputElement>('input:not([readonly])')?.focus();
   }
 
   // ----- Events -----

@@ -11,7 +11,7 @@
     <meta name="apple-mobile-web-app-title" content="Forester" />
     <title>Forester – Waldgrundstücke</title>
   </head>
-  <body>
+  <body data-tab="map">
     <div id="map"></div>
 
     <header class="topbar">
@@ -24,8 +24,6 @@
         <button id="btn-layer" type="button" class="icon layer-btn" aria-label="Luftbild" title="Luftbild / Karte">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5zm-7.6 8.2L2 12.4l10 5 10-5-2.4-1.2L12 15l-7.6-3.8zm0 4L2 16.4l10 5 10-5-2.4-1.2L12 19l-7.6-3.8z"/></svg>
         </button>
-        <button id="btn-mine" type="button" class="primary">Meine <span id="mine-count">0</span><span id="reports-badge" class="badge" hidden></span></button>
-        <button id="btn-menu" type="button" class="icon menu-btn" aria-label="Einstellungen">☰</button>
       </div>
     </header>
 
@@ -39,32 +37,43 @@
 
     <section id="sheet" class="sheet" hidden aria-live="polite"></section>
 
-    <section id="menu" class="drawer" hidden></section>
-
-    <section id="account" class="drawer" hidden></section>
-
     <section id="shared" class="drawer" hidden></section>
 
-    <div id="toast" class="toast" role="status" hidden></div>
+    <main id="page-overview" class="page" hidden>
+      <div class="page-inner">
+        <h1>Übersicht</h1>
+        <div id="reports" class="reports"></div>
+        <div id="received"></div>
+        <div id="overview-filter" class="list-filter"></div>
+        <div id="overview-body"></div>
+      </div>
+    </main>
 
-    <section id="drawer" class="drawer" hidden>
-      <div class="drawer-head">
-        <h2>Meine Grundstücke</h2>
-        <button id="btn-drawer-close" type="button" class="icon" aria-label="Schließen">✕</button>
+    <main id="page-more" class="page" hidden>
+      <div class="page-inner">
+        <h1>Mehr</h1>
+        <section id="account" class="account-block"></section>
+        <div id="menu" class="settings-block"></div>
       </div>
-      <div id="reports" class="reports"></div>
-      <div id="list-filter" class="list-filter"></div>
-      <ul id="mine-list" class="mine-list"></ul>
-      <div class="drawer-foot">
-        <button id="btn-share" type="button" class="primary">Liste teilen</button>
-        <button id="btn-fit-all" type="button">Alle anzeigen</button>
-        <button id="btn-export" type="button">Sichern</button>
-        <label class="button">Laden<input id="input-import" type="file" accept="application/json,.json" hidden /></label>
-      </div>
-      <p class="fineprint" id="storage-note">
-        Gespeichert nur auf diesem Gerät. Mit „Sichern“ eine Datei als Backup herunterladen.
-      </p>
-    </section>
+    </main>
+
+    <nav class="tabbar" aria-label="Navigation">
+      <button type="button" data-tab="map" class="on" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.5 3l-.16.03L15 5.1 9 3 3.36 4.9c-.21.07-.36.25-.36.48V20.5c0 .28.22.5.5.5l.16-.03L9 18.9l6 2.1 5.64-1.9c.21-.07.36-.25.36-.48V3.5c0-.28-.22-.5-.5-.5zM15 19l-6-2.11V5l6 2.11V19z"/></svg>
+        <span>Karte</span>
+      </button>
+      <button type="button" data-tab="overview">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
+        <span>Übersicht</span>
+        <span id="tab-badge" class="badge" hidden></span>
+      </button>
+      <button type="button" data-tab="more">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+        <span>Mehr</span>
+      </button>
+    </nav>
+
+    <div id="toast" class="toast" role="status" hidden></div>
 
     <script type="module" src="/src/main.ts"></script>
   </body>
