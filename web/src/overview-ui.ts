@@ -41,8 +41,10 @@ export function initOverview(opts: {
     const flags = sortFlags(p.flags);
     const pills = flags.map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`);
     if (pending.has(p.key)) pills.push('<i class="pill pill-outline" style="--c:#c62828">Meldung offen</i>');
-    if (!pills.length) pills.push('<i class="pill pill-ok">Keine Meldung</i>');
+    const fieldOnly = !!p.landUse?.includes('field') && !p.landUse.includes('forest');
+    if (!pills.length && !fieldOnly) pills.push('<i class="pill pill-ok">Keine Meldung</i>');
     if (p.crop) pills.unshift(`<i class="pill pill-crop">${esc(cropText(p.crop))}</i>`);
+    else if (fieldOnly && !pills.length) pills.push('<i class="pill pill-muted">Keine Kultur eingetragen</i>');
     return `<span class="pills">${pills.join('')}</span>`;
   }
 

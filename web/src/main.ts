@@ -245,6 +245,11 @@ function renderSheet() {
   const meta = [parcelSub(info), formatArea(info.areaM2), status].filter(Boolean).join(' · ');
   const rel = relativeSentence(info);
   const [lng, lat] = info.center;
+  const uses = landUseOf(info);
+  const isField = !!uses?.includes('field');
+  // Käferbefall, Windwurf, Durchforsten are forest topics: not offered on pure fields
+  // (unless a flag is already there, so it can still be removed)
+  const showFlags = !(isField && !uses?.includes('forest')) || flags.length > 0;
 
   sheet.innerHTML = `
     <div class="sheet-head">
@@ -260,17 +265,21 @@ function renderSheet() {
         ? `<p class="warn">Das Grundstück ist größer als der geladene Kartenausschnitt. Zum vollständigen Speichern etwas herauszoomen und nochmal tippen.</p>`
         : ''
     }
-    <div class="flag-buttons">
+    ${
+      showFlags
+        ? `<div class="flag-buttons">
       ${FLAGS.map((d) => {
         const f = flags.find((x) => x.type === d.type);
         return `<button type="button" data-flag="${d.type}" class="flag ${f ? 'on' : ''}" style="--c:${d.color}" aria-pressed="${!!f}">
           ${esc(d.label)}${f ? `<small>seit ${esc(formatSince(f.since))}</small>` : ''}</button>`;
       }).join('')}
-    </div>
+    </div>`
+        : ''
+    }
     ${
-      savedP && (savedP.crop || landUseOf(info)?.includes('field'))
+      savedP && (savedP.crop || isField)
         ? cropHtml(savedP)
-        : !savedP && landUseOf(info)?.includes('field')
+        : !savedP && isField
           ? '<p class="fineprint crop-hint">Feld: als dein Grundstück speichern, um einzutragen, was hier wächst.</p>'
           : ''
     }
