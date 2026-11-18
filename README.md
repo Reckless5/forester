@@ -68,7 +68,7 @@ docs/
 - [x] Map with BEV cadastre + basemap.at, forest areas highlighted
 - [x] GPS location, tap a parcel, save it as "mine"
 - [x] Saved parcels list with distance and direction, backup/restore as a file
-- [x] Map menu (layer button): Karte/Luftbild, "Wälder anzeigen", "Felder anzeigen"; debug location for testing
+- [x] Floating "Wälder anzeigen" / "Felder anzeigen" toggles bottom left; map menu (layer button) for Karte/Luftbild; debug location for testing
 - [x] Kultur on own field parcels: common Austrian crops, meadow/pasture, per year
 - [x] Flags on any parcel: Käferbefall, Windwurf, Durchforsten (with date), list filter
 - [x] Search: own/flagged parcels, any parcel by KG + number, KGs, places (OpenStreetMap via Photon)

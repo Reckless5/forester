@@ -57,8 +57,9 @@ const map = new MLMap({
   attributionControl: false,
 });
 
-map.addControl(new AttributionControl({ compact: true }), 'bottom-left');
-map.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-left');
+// Bottom left is taken by the forest/field toggles
+map.addControl(new AttributionControl({ compact: true }), 'bottom-right');
+map.addControl(new ScaleControl({ unit: 'metric' }), 'bottom-right');
 map.addControl(new NavigationControl({ visualizePitch: false }), 'top-right');
 
 const geolocate = new GeolocateControl({
@@ -454,7 +455,6 @@ function applyParcelVisibility() {
 const mapMenu = $('map-menu');
 
 function renderMapMenu() {
-  const s = settings.get();
   const ortho = map.getLayoutProperty(L.ortho, 'visibility') === 'visible';
   mapMenu.innerHTML = `
     <h4>Kartenansicht</h4>
@@ -462,17 +462,30 @@ function renderMapMenu() {
       <button type="button" data-base="map" class="${ortho ? '' : 'on'}" aria-pressed="${!ortho}">Karte</button>
       <button type="button" data-base="ortho" class="${ortho ? 'on' : ''}" aria-pressed="${ortho}">Luftbild</button>
     </div>
-    <h4>Grundstücke</h4>
-    <label class="toggle"><input type="checkbox" data-mm="showForest" ${s.showForest ? 'checked' : ''} />
-      <i class="swatch" style="--c:${FOREST_COLOR}"></i><span>Wälder anzeigen</span></label>
-    <label class="toggle"><input type="checkbox" data-mm="showFields" ${s.showFields ? 'checked' : ''} />
-      <i class="swatch" style="--c:${FIELD_COLOR}"></i><span>Felder anzeigen</span></label>
-    <p class="fineprint">${
-      s.showForest || s.showFields
-        ? 'Grenzen und Nummern erscheinen beim Hineinzoomen.'
-        : 'Keine Grundstücksgrenzen eingeblendet – deine gespeicherten Grundstücke bleiben sichtbar.'
-    }</p>`;
+    <p class="fineprint">Wälder und Felder blendest du mit den Schaltern links unten ein.</p>`;
 }
+
+// ---------- Forest / field toggles (bottom left of the map) ----------
+const landuseToggles = $('landuse-toggles');
+
+function renderLanduseToggles() {
+  const s = settings.get();
+  const btn = (key: 'showForest' | 'showFields', label: string, color: string, on: boolean) =>
+    `<button type="button" class="lu-toggle ${on ? 'on' : ''}" data-lu="${key}" aria-pressed="${on}" style="--c:${color}">
+      <i class="lu-check" aria-hidden="true">${on ? '✓' : ''}</i><span>${label}</span></button>`;
+  landuseToggles.innerHTML =
+    btn('showForest', 'Wälder anzeigen', FOREST_COLOR, s.showForest) + btn('showFields', 'Felder anzeigen', FIELD_COLOR, s.showFields);
+}
+
+landuseToggles.addEventListener('click', (e) => {
+  const key = (e.target as HTMLElement).closest<HTMLElement>('[data-lu]')?.dataset.lu as 'showForest' | 'showFields' | undefined;
+  if (!key) return;
+  settings.set({ [key]: !settings.get()[key] });
+  applyParcelVisibility();
+  clearSelection();
+  renderLanduseToggles();
+});
+renderLanduseToggles();
 
 function setMapMenu(open: boolean) {
   if (open) renderMapMenu();
@@ -494,15 +507,6 @@ mapMenu.addEventListener('click', (e) => {
   renderMapMenu();
 });
 
-mapMenu.addEventListener('change', (e) => {
-  const input = e.target as HTMLInputElement;
-  const key = input.dataset.mm as 'showForest' | 'showFields' | undefined;
-  if (!key) return;
-  settings.set({ [key]: input.checked });
-  applyParcelVisibility();
-  clearSelection();
-  renderMapMenu();
-});
 
 // A card opened before its tiles were loaded: once they are, show the crop section if it's a field
 map.on('idle', () => {
@@ -734,6 +738,10 @@ geolocate.on('error', () => {
 });
 
 map.on('load', () => {
+  // Start with the attribution collapsed (ⓘ), so it doesn't run under the toggles
+  const attrib = document.querySelector('.maplibregl-ctrl-attrib');
+  attrib?.classList.remove('maplibregl-compact-show');
+  attrib?.removeAttribute('open');
   updateZoomChip();
   applyParcelVisibility();
   const debugPos = settings.get().debugPos;
