@@ -48,7 +48,8 @@ docs/
 - [x] Map with BEV cadastre + basemap.at, forest areas highlighted
 - [x] GPS location, tap a parcel, save it as "mine"
 - [x] Saved parcels list with distance and direction, backup/restore as a file
-- [ ] Check the parcel attributes on real tiles ("Technische Details") and simplify `parcel.ts`
+- [x] Only forest parcels shown (toggle in ☰), debug location for testing
+- [x] Flags on any parcel: Käferbefall, Windwurf, Durchforsten (with date), list filter
 - [ ] Search by KG and parcel number
 - [ ] User accounts + backend, so parcels sync across devices
 - [ ] Offline use in the forest (PWA + cached tiles)

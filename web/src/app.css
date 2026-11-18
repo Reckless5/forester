@@ -155,3 +155,50 @@ details pre { background: #f5f5f5; padding: 8px; border-radius: 8px; overflow: a
 
 /* Keep MapLibre controls clear of the top bar */
 .maplibregl-ctrl-top-right { top: env(safe-area-inset-top); }
+
+/* Flags */
+.flag-buttons { display: flex; gap: 6px; margin: 12px 0 0; }
+.flag-buttons .flag {
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 0;
+  padding: 6px 4px;
+  font-size: 14px;
+  border: 2px solid var(--c);
+  color: var(--c);
+  background: #fff;
+  line-height: 1.2;
+}
+.flag-buttons .flag.on { background: var(--c); color: #fff; font-weight: 600; }
+.flag-buttons small { font-size: 11px; font-weight: 400; opacity: 0.9; }
+
+.pills { grid-column: 1; display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.pill {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--c);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.mine-list em { grid-row: 1 / span 3; }
+.mine-list .group {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  padding: 14px 0 4px;
+}
+
+.list-filter { display: flex; gap: 6px; overflow-x: auto; padding: 6px 0 2px; }
+.list-filter button {
+  min-height: 34px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  white-space: nowrap;
+  border-color: var(--c, var(--line));
+  color: var(--c, var(--text));
+}
+.list-filter button.on { background: var(--c, var(--text)); color: #fff; }

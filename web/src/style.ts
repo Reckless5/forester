@@ -30,6 +30,7 @@ export const L = {
   mineLine: 'mine-line',
   mineLabel: 'mine-label',
   mineDot: 'mine-dot',
+  flagDots: ['flag-dot-0', 'flag-dot-1', 'flag-dot-2'],
 } as const;
 
 const GREEN = '#2e7d32';
@@ -143,20 +144,27 @@ export function buildStyle(): Style {
         },
       },
 
-      // Saved parcels ("Meine Grundstücke")
+      // Kept parcels: own ones in blue, others (only flagged) in their first flag's colour.
+      // Area features carry `owned` and `color` (set in main.ts).
       {
         id: L.mineFill,
         type: 'fill',
         source: 'mine',
         filter: ['==', ['get', 'kind'], 'area'],
-        paint: { 'fill-color': MINE, 'fill-opacity': 0.3 },
+        paint: {
+          'fill-color': ['case', ['get', 'owned'], MINE, ['get', 'color']],
+          'fill-opacity': ['case', ['get', 'owned'], 0.3, 0.18],
+        },
       },
       {
         id: L.mineLine,
         type: 'line',
         source: 'mine',
         filter: ['==', ['get', 'kind'], 'area'],
-        paint: { 'line-color': MINE, 'line-width': 2.5 },
+        paint: {
+          'line-color': ['case', ['get', 'owned'], MINE, ['get', 'color']],
+          'line-width': ['case', ['get', 'owned'], 2.5, 2],
+        },
       },
       {
         // Visible when zoomed out far enough that the area is tiny
@@ -164,7 +172,7 @@ export function buildStyle(): Style {
         type: 'circle',
         source: 'mine',
         maxzoom: 13,
-        filter: ['==', ['get', 'kind'], 'point'],
+        filter: ['all', ['==', ['get', 'kind'], 'point'], ['get', 'owned']],
         paint: {
           'circle-color': MINE,
           'circle-radius': 6,
@@ -172,6 +180,21 @@ export function buildStyle(): Style {
           'circle-stroke-width': 2,
         },
       },
+
+      // Flag dots below the parcel centre, one layer per position (circle-translate can't vary per feature)
+      ...[0, 1, 2].map((slot) => ({
+        id: `flag-dot-${slot}`,
+        type: 'circle' as const,
+        source: 'mine',
+        filter: ['all', ['==', ['get', 'kind'], 'flag'], ['==', ['get', 'slot'], slot]] as never,
+        paint: {
+          'circle-color': ['get', 'color'] as never,
+          'circle-radius': 7,
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+          'circle-translate': [slot * 17 - 17, 16] as [number, number],
+        },
+      })),
 
       // Selected parcel
       {
@@ -212,12 +235,13 @@ export function buildStyle(): Style {
         type: 'symbol',
         source: 'mine',
         minzoom: 13,
-        filter: ['==', ['get', 'kind'], 'point'],
+        filter: ['all', ['==', ['get', 'kind'], 'point'], ['get', 'owned']],
         layout: {
           'text-field': ['get', 'name'],
           'text-font': FONT,
           'text-size': 14,
           'text-allow-overlap': true,
+          'text-offset': [0, -0.4],
         },
         paint: { 'text-color': MINE, 'text-halo-color': '#fff', 'text-halo-width': 2 },
       },

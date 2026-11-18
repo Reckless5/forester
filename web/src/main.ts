@@ -15,10 +15,11 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { AUSTRIA_BOUNDS, AUSTRIA_CENTER, PARCEL_MINZOOM } from './config';
 import { bbox, bearingDeg, compass, distanceM, formatArea, formatDistance, pointInPolygons, type LngLat } from './geo';
+import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
 import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
-import { store, type SavedParcel } from './store';
+import { isOwned, store, type SavedParcel } from './store';
 import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
 
 // ---------- DOM ----------
@@ -66,6 +67,7 @@ map.addControl(geolocate, 'top-right');
 let myPos: LngLat | undefined;
 let gpsPos: LngLat | undefined;
 let placingDebugPos = false;
+let listFilter: FlagType | 'all' = 'all';
 let selected: { info: ParcelInfo | SavedParcel; saved: boolean } | undefined;
 
 // ---------- Helpers ----------
@@ -108,16 +110,29 @@ function parcelSub(p: { kgName?: string; kgNr?: string }) {
 }
 
 // ---------- Saved parcels on the map + list ----------
+// Dot positions for 1, 2 or 3 flags, so they stay centred (see flag-dot layers)
+const FLAG_SLOTS = [[], [1], [0, 2], [0, 1, 2]];
+
 store.subscribe((parcels) => {
-  $('mine-count').textContent = String(parcels.length);
+  $('mine-count').textContent = String(parcels.filter(isOwned).length);
   const features: GeoJSON.Feature[] = [];
   for (const p of parcels) {
-    features.push({ type: 'Feature', properties: { key: p.key, name: p.name, kind: 'area' }, geometry: p.geometry });
+    const owned = isOwned(p);
+    const flags = sortFlags(p.flags);
+    const color = flags.length ? flagDef(flags[0].type).color : '#1565c0';
+    features.push({ type: 'Feature', properties: { key: p.key, name: p.name, kind: 'area', owned, color }, geometry: p.geometry });
     features.push({
       type: 'Feature',
-      properties: { key: p.key, name: p.name, kind: 'point' },
+      properties: { key: p.key, name: p.name, kind: 'point', owned },
       geometry: { type: 'Point', coordinates: p.center },
     });
+    flags.forEach((f, i) =>
+      features.push({
+        type: 'Feature',
+        properties: { key: p.key, kind: 'flag', slot: FLAG_SLOTS[flags.length][i], color: flagDef(f.type).color },
+        geometry: { type: 'Point', coordinates: p.center },
+      }),
+    );
   }
   if (map.isStyleLoaded()) setSource('mine', { type: 'FeatureCollection', features });
   else map.once('load', () => setSource('mine', { type: 'FeatureCollection', features }));
@@ -125,24 +140,58 @@ store.subscribe((parcels) => {
   updateHere();
 });
 
-function renderList() {
-  const parcels = [...store.all()];
-  if (myPos) parcels.sort((a, b) => distanceM(myPos!, a.center) - distanceM(myPos!, b.center));
-  else parcels.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+function flagPills(p: SavedParcel) {
+  const flags = sortFlags(p.flags);
+  return flags.length
+    ? `<span class="pills">${flags
+        .map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`)
+        .join('')}</span>`
+    : '';
+}
 
-  list.innerHTML = parcels.length
-    ? parcels
-        .map(
-          (p) => `
+function listItem(p: SavedParcel) {
+  return `
       <li><button type="button" data-key="${esc(p.key)}">
         <strong>${esc(p.name)}</strong>
-        <span>${esc([parcelTitle(p), parcelSub(p), formatArea(p.areaM2)].filter(Boolean).join(' · '))}</span>
+        <span>${esc([isOwned(p) ? parcelTitle(p) : '', parcelSub(p), formatArea(p.areaM2)].filter(Boolean).join(' · '))}</span>
+        ${flagPills(p)}
         ${myPos ? `<em>${esc(relativeTo(p))}</em>` : ''}
-      </button></li>`,
-        )
-        .join('')
-    : `<li class="empty">Noch keine Grundstücke gespeichert.<br>Hineinzoomen, auf ein Grundstück tippen und „Als mein Grundstück speichern“ wählen.</li>`;
+      </button></li>`;
 }
+
+function renderList() {
+  const all = store.all();
+  const parcels = all.filter((p) => listFilter === 'all' || p.flags?.some((f) => f.type === listFilter));
+  if (myPos) parcels.sort((a, b) => distanceM(myPos!, a.center) - distanceM(myPos!, b.center));
+  else parcels.sort((a, b) => a.name.localeCompare(b.name, 'de'));
+  const own = parcels.filter(isOwned);
+  const others = parcels.filter((p) => !isOwned(p));
+  const count = (t: FlagType) => all.filter((p) => p.flags?.some((f) => f.type === t)).length;
+
+  $('list-filter').innerHTML = [
+    `<button type="button" data-filter="all" class="${listFilter === 'all' ? 'on' : ''}">Alle</button>`,
+    ...FLAGS.map(
+      (f) =>
+        `<button type="button" data-filter="${f.type}" class="${listFilter === f.type ? 'on' : ''}" style="--c:${f.color}">${esc(f.label)} ${count(f.type)}</button>`,
+    ),
+  ].join('');
+
+  let html = own.map(listItem).join('');
+  if (others.length) html += `<li class="group">Nur markiert</li>` + others.map(listItem).join('');
+  if (!parcels.length)
+    html =
+      listFilter === 'all'
+        ? `<li class="empty">Noch keine Grundstücke gespeichert.<br>Hineinzoomen, auf ein Grundstück tippen und „Als mein Grundstück speichern“ wählen.</li>`
+        : `<li class="empty">Keine Grundstücke mit „${esc(flagDef(listFilter).label)}“.</li>`;
+  list.innerHTML = html;
+}
+
+$('list-filter').addEventListener('click', (e) => {
+  const f = (e.target as HTMLElement).closest<HTMLElement>('[data-filter]')?.dataset.filter;
+  if (!f) return;
+  listFilter = f as FlagType | 'all';
+  renderList();
+});
 
 list.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('button[data-key]');
@@ -183,7 +232,9 @@ function clearSelection() {
 function renderSheet() {
   if (!selected) return;
   const { info, saved } = selected;
-  const savedP = saved ? (info as SavedParcel) : store.get(info.key);
+  const kept = saved ? (info as SavedParcel) : store.get(info.key);
+  const savedP = kept && isOwned(kept) ? kept : undefined;
+  const flags = kept?.flags ?? [];
   const live = !saved ? (info as ParcelInfo) : undefined;
   const status =
     live?.rstatus === 'G' ? 'Grenzkataster (verbindlich)' : live?.rstatus === 'E' ? 'Grundsteuerkataster' : '';
@@ -205,6 +256,13 @@ function renderSheet() {
         ? `<p class="warn">Das Grundstück ist größer als der geladene Kartenausschnitt. Zum vollständigen Speichern etwas herauszoomen und nochmal tippen.</p>`
         : ''
     }
+    <div class="flag-buttons">
+      ${FLAGS.map((d) => {
+        const f = flags.find((x) => x.type === d.type);
+        return `<button type="button" data-flag="${d.type}" class="flag ${f ? 'on' : ''}" style="--c:${d.color}" aria-pressed="${!!f}">
+          ${esc(d.label)}${f ? `<small>seit ${esc(formatSince(f.since))}</small>` : ''}</button>`;
+      }).join('')}
+    </div>
     <div class="sheet-actions">
       ${
         savedP
@@ -226,7 +284,15 @@ function renderSheet() {
 }
 
 sheet.addEventListener('click', (e) => {
-  const act = (e.target as HTMLElement).closest<HTMLElement>('[data-act]')?.dataset.act;
+  const target = e.target as HTMLElement;
+  const flagType = target.closest<HTMLElement>('[data-flag]')?.dataset.flag as FlagType | undefined;
+  if (flagType && selected) {
+    const kept = store.toggleFlag(selected.info, flagType, parcelTitle(selected.info));
+    if (kept) showSaved(kept);
+    else renderSheet(); // dropped (no flags, not owned): keep showing the live parcel
+    return;
+  }
+  const act = target.closest<HTMLElement>('[data-act]')?.dataset.act;
   if (!act || !selected) return;
   const { info } = selected;
 
@@ -234,19 +300,7 @@ sheet.addEventListener('click', (e) => {
   else if (act === 'save') {
     const name = prompt('Name für dieses Grundstück:', parcelTitle(info))?.trim();
     if (!name) return;
-    const p: SavedParcel = {
-      key: info.key,
-      name,
-      kgName: info.kgName,
-      kgNr: info.kgNr,
-      gnr: info.gnr,
-      geometry: info.geometry,
-      center: info.center,
-      areaM2: info.areaM2,
-      savedAt: new Date().toISOString(),
-    };
-    store.save(p);
-    showSaved(p);
+    showSaved(store.own(info, name));
   } else if (act === 'rename') {
     const cur = store.get(info.key);
     const name = prompt('Neuer Name:', cur?.name ?? '')?.trim();
@@ -256,9 +310,13 @@ sheet.addEventListener('click', (e) => {
     }
   } else if (act === 'remove') {
     const cur = store.get(info.key);
-    if (cur && confirm(`„${cur.name}“ aus deinen Grundstücken entfernen?`)) {
-      store.remove(info.key);
-      clearSelection();
+    const hasFlags = !!cur?.flags?.length;
+    const msg = `„${cur?.name}“ aus deinen Grundstücken entfernen?${hasFlags ? ' Die Markierungen bleiben erhalten.' : ''}`;
+    if (cur && confirm(msg)) {
+      store.disown(info.key);
+      const still = store.get(info.key);
+      if (still) showSaved(still);
+      else clearSelection();
     }
   }
 });
@@ -270,7 +328,7 @@ map.on('click', (e) => {
     setDebugPos([e.lngLat.lng, e.lngLat.lat]);
     return;
   }
-  const mine = map.queryRenderedFeatures(e.point, { layers: [L.mineFill, L.mineDot] })[0];
+  const mine = map.queryRenderedFeatures(e.point, { layers: [...L.flagDots, L.mineDot, L.mineFill] })[0];
   if (mine) {
     const p = store.get(String(mine.properties?.key));
     if (p) {
@@ -289,7 +347,7 @@ map.on('click', (e) => {
   } else clearSelection();
 });
 
-for (const layer of [L.parcelHit, L.mineFill, L.mineDot]) {
+for (const layer of [L.parcelHit, L.mineFill, L.mineDot, ...L.flagDots]) {
   map.on('mouseenter', layer, () => (map.getCanvas().style.cursor = 'pointer'));
   map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
 }
