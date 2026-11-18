@@ -76,7 +76,8 @@ export function initSearch(deps: Deps) {
     try {
       const kgs = await loadKgIndex();
       if (q !== input.value.trim()) return; // typed on meanwhile
-      const pq = parseParcelQuery(q);
+      // A bare 5-digit number is a KG number, not a parcel number
+      const pq = /^\d{5}$/.test(q) && kgs.some((k) => k.nr === q) ? undefined : parseParcelQuery(q);
       if (pq) {
         const candidates = pq.kg
           ? /^\d{5}$/.test(pq.kg)
@@ -178,6 +179,9 @@ export function initSearch(deps: Deps) {
   function close() {
     panel.hidden = true;
     lastQuery = '';
+    // Stop a pending place search, so it can't reopen the list later
+    clearTimeout(placesTimer);
+    placesAbort?.abort();
   }
 
   async function choose(it: Item) {
