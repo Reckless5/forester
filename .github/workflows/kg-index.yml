@@ -1,0 +1,44 @@
+name: Build KG index
+
+# Rebuilds web/public/kg-index.json (all cadastral communities with name,
+# number and extent) from the BEV tiles and commits it if it changed.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 1 */3 *' # quarterly; only runs from the default branch
+  push:
+    paths: ['web/scripts/build-kg-index.mjs', '.github/workflows/kg-index.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kg-index-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - run: node scripts/build-kg-index.mjs
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/kg-index.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "Update KG index from BEV tiles"
+            git push
+          fi
