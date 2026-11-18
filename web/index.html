@@ -37,6 +37,10 @@
 
     <section id="menu" class="drawer" hidden></section>
 
+    <section id="account" class="drawer" hidden></section>
+
+    <div id="toast" class="toast" role="status" hidden></div>
+
     <section id="drawer" class="drawer" hidden>
       <div class="drawer-head">
         <h2>Meine Grundstücke</h2>
@@ -49,7 +53,7 @@
         <button id="btn-export" type="button">Sichern</button>
         <label class="button">Laden<input id="input-import" type="file" accept="application/json,.json" hidden /></label>
       </div>
-      <p class="fineprint">
+      <p class="fineprint" id="storage-note">
         Gespeichert nur auf diesem Gerät. Mit „Sichern“ eine Datei als Backup herunterladen.
       </p>
     </section>

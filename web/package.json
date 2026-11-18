@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mapbox/vector-tile": "^2.0.5",
+    "@supabase/supabase-js": "^2.119.0",
     "maplibre-gl": "^6.19.0",
     "pbf": "^4.0.2",
     "polygon-clipping": "^0.15.7"

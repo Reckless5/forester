@@ -1,6 +1,9 @@
 // Parcels the user keeps: their own ("Meine Grundstücke") and any parcel
-// they've flagged. Saved on this device for now (localStorage).
-// Later this moves to a backend so owners can use several devices.
+// they've flagged.
+//
+// Not logged in: kept on this device (localStorage).
+// Logged in: kept in Supabase; every change is sent there (see `Remote`), and a
+// copy is cached on the device per account so the map shows up quickly.
 
 import { sortFlags, type Flag, type FlagType } from './flags';
 import type { LngLat, MultiPolygon } from './geo';
@@ -32,14 +35,22 @@ const pickData = ({ key, kgName, kgNr, gnr, geometry, center, areaM2 }: ParcelDa
   key, kgName, kgNr, gnr, geometry, center, areaM2,
 });
 
-const STORAGE_KEY = 'forester.parcels.v1';
+const LOCAL_KEY = 'forester.parcels.v1';
+const accountKey = (userId: string) => `forester.parcels.account.${userId}`;
+
+/** Where changes go when logged in. */
+export interface Remote {
+  upsert(parcels: SavedParcel[]): Promise<void>;
+  remove(keys: string[]): Promise<void>;
+}
 
 type Listener = (parcels: SavedParcel[]) => void;
 const listeners = new Set<Listener>();
+let onRemoteError: (e: Error) => void = (e) => console.error(e);
 
-function read(): SavedParcel[] {
+function readKey(key: string): SavedParcel[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     const data = raw ? JSON.parse(raw) : [];
     return Array.isArray(data) ? data : [];
   } catch {
@@ -47,16 +58,36 @@ function read(): SavedParcel[] {
   }
 }
 
-let parcels: SavedParcel[] = read();
+let storageKey = LOCAL_KEY;
+let remote: Remote | undefined;
+let parcels: SavedParcel[] = readKey(LOCAL_KEY);
 
-function write() {
+function persist() {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(parcels));
+    localStorage.setItem(storageKey, JSON.stringify(parcels));
   } catch (e) {
     console.error('Could not save parcels', e);
-    alert('Speichern fehlgeschlagen – ist der Speicher des Browsers voll oder gesperrt?');
+    if (!remote) alert('Speichern fehlgeschlagen – ist der Speicher des Browsers voll oder gesperrt?');
   }
+}
+
+/** Apply a change: store it, tell listeners, and send what changed to the account. */
+function write(prev: SavedParcel[] = parcels) {
+  persist();
   listeners.forEach((l) => l(parcels));
+  if (!remote) return;
+  const before = new Map(prev.map((p) => [p.key, p]));
+  const changed = parcels.filter((p) => before.get(p.key) !== p);
+  const keys = new Set(parcels.map((p) => p.key));
+  const removed = prev.filter((p) => !keys.has(p.key)).map((p) => p.key);
+  if (changed.length) remote.upsert(changed).catch(onRemoteError);
+  if (removed.length) remote.remove(removed).catch(onRemoteError);
+}
+
+function set(next: SavedParcel[]) {
+  const prev = parcels;
+  parcels = next;
+  write(prev);
 }
 
 export const store = {
@@ -64,16 +95,13 @@ export const store = {
   get: (key: string) => parcels.find((p) => p.key === key),
   has: (key: string) => parcels.some((p) => p.key === key),
   save(p: SavedParcel) {
-    parcels = [...parcels.filter((x) => x.key !== p.key), p];
-    write();
+    set([...parcels.filter((x) => x.key !== p.key), p]);
   },
   rename(key: string, name: string) {
-    parcels = parcels.map((p) => (p.key === key ? { ...p, name } : p));
-    write();
+    set(parcels.map((p) => (p.key === key ? { ...p, name } : p)));
   },
   remove(key: string) {
-    parcels = parcels.filter((p) => p.key !== key);
-    write();
+    set(parcels.filter((p) => p.key !== key));
   },
   /** Mark as own parcel (keeps any flags). */
   own(data: ParcelData, name: string): SavedParcel {
@@ -111,6 +139,44 @@ export const store = {
     l(parcels);
     return () => listeners.delete(l);
   },
+  // ----- Accounts -----
+  /** Switch to an account: show its cached parcels now; call `loaded` once fetched. */
+  useAccount(userId: string, r: Remote) {
+    storageKey = accountKey(userId);
+    remote = undefined; // the cache isn't a change to send
+    parcels = readKey(storageKey);
+    listeners.forEach((l) => l(parcels));
+    return {
+      loaded(fromServer: SavedParcel[]) {
+        parcels = fromServer;
+        persist();
+        remote = r;
+        listeners.forEach((l) => l(parcels));
+      },
+    };
+  },
+  /** Back to the parcels kept on this device without an account. */
+  useLocal() {
+    storageKey = LOCAL_KEY;
+    remote = undefined;
+    parcels = readKey(LOCAL_KEY);
+    listeners.forEach((l) => l(parcels));
+  },
+  /** Parcels saved on this device without an account (to offer uploading them). */
+  deviceParcels: () => readKey(LOCAL_KEY),
+  clearDeviceParcels() {
+    localStorage.removeItem(LOCAL_KEY);
+  },
+  /** Add parcels to the current account; keeps the account's version where both exist. */
+  addMissing(incoming: SavedParcel[]) {
+    const have = new Set(parcels.map((p) => p.key));
+    const add = incoming.filter((p) => !have.has(p.key));
+    if (add.length) set([...parcels, ...add]);
+    return add.length;
+  },
+  onRemoteError(fn: (e: Error) => void) {
+    onRemoteError = fn;
+  },
   exportJson(): string {
     return JSON.stringify({ app: 'forester', version: 1, parcels }, null, 2);
   },
@@ -121,8 +187,7 @@ export const store = {
     const valid = incoming.filter((p) => p && typeof p.key === 'string' && p.geometry?.coordinates);
     const byKey = new Map(parcels.map((p) => [p.key, p]));
     valid.forEach((p) => byKey.set(p.key, p));
-    parcels = [...byKey.values()];
-    write();
+    set([...byKey.values()]);
     return valid.length;
   },
 };

@@ -19,6 +19,7 @@ import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
 import { createForestIndex } from './forest';
 import { identifyParcel, type ParcelInfo } from './parcel';
 import { settings } from './settings';
+import { initAccount } from './account-ui';
 import { initSearch } from './search-ui';
 import { isOwned, store, type SavedParcel } from './store';
 import { buildStyle, EMPTY_FC, forestOnlyPaint, L, PARCEL_LINE, PARCEL_NUMBER } from './style';
@@ -69,6 +70,7 @@ let myPos: LngLat | undefined;
 let gpsPos: LngLat | undefined;
 let placingDebugPos = false;
 let listFilter: FlagType | 'all' = 'all';
+let loggedIn = false;
 let selected: { info: ParcelInfo | SavedParcel; saved: boolean } | undefined;
 
 // ---------- Helpers ----------
@@ -161,6 +163,9 @@ function listItem(p: SavedParcel) {
 }
 
 function renderList() {
+  $('storage-note').textContent = loggedIn
+    ? 'Im Konto gespeichert – auf allen Geräten verfügbar, auf denen du angemeldet bist.'
+    : 'Gespeichert nur auf diesem Gerät. Mit „Sichern“ eine Datei als Backup herunterladen – oder im Menü anmelden.';
   const all = store.all();
   const parcels = all.filter((p) => listFilter === 'all' || p.flags?.some((f) => f.type === listFilter));
   if (myPos) parcels.sort((a, b) => distanceM(myPos!, a.center) - distanceM(myPos!, b.center));
@@ -404,6 +409,46 @@ function applyForestOnly() {
   map.setPaintProperty(PARCEL_NUMBER, 'text-opacity', paint.parcelNumber);
 }
 
+// ---------- Toast ----------
+const toastEl = $('toast');
+let toastTimer: number | undefined;
+function toast(msg: string) {
+  toastEl.textContent = msg;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => (toastEl.hidden = true), 4000);
+}
+
+// ---------- Account ----------
+const account = initAccount({
+  onOpen: () => {
+    menu.hidden = true;
+    drawer.hidden = true;
+    search.close();
+  },
+  onChange: () => {
+    loggedIn = !!account?.profile();
+    clearSelection();
+    renderList();
+    if (!menu.hidden) renderMenu();
+  },
+  toast,
+});
+
+function accountMenuHtml() {
+  if (!account.enabled) return '';
+  const p = account.profile();
+  return p
+    ? `<div class="menu-account">
+        <div><strong>${esc(p.displayName || p.email)}</strong><span>Grundstücke werden im Konto gespeichert</span></div>
+        <button type="button" data-menu="account">Konto</button>
+      </div>`
+    : `<div class="menu-account">
+        <div><strong>Nicht angemeldet</strong><span>Grundstücke nur auf diesem Gerät</span></div>
+        <button type="button" class="primary" data-menu="account">Anmelden</button>
+      </div>`;
+}
+
 // ---------- Menu ----------
 function renderMenu() {
   const s = settings.get();
@@ -412,6 +457,7 @@ function renderMenu() {
       <h2>Einstellungen</h2>
       <button type="button" class="icon" data-menu="close" aria-label="Schließen">✕</button>
     </div>
+    ${accountMenuHtml()}
     <label class="toggle">
       <input type="checkbox" data-menu="forestOnly" ${s.forestOnly ? 'checked' : ''} />
       <span>Nur Waldgrundstücke anzeigen</span>
@@ -428,6 +474,7 @@ function renderMenu() {
 menu.addEventListener('click', (e) => {
   const act = (e.target as HTMLElement).closest<HTMLElement>('[data-menu]')?.dataset.menu;
   if (act === 'close') menu.hidden = true;
+  else if (act === 'account') account.open();
   else if (act === 'placeDebug') {
     placingDebugPos = true;
     menu.hidden = true;
@@ -448,6 +495,7 @@ menu.addEventListener('change', (e) => {
 
 $('btn-menu').addEventListener('click', () => {
   drawer.hidden = true;
+  account.close();
   search.close();
   renderMenu();
   menu.hidden = !menu.hidden;
@@ -511,6 +559,7 @@ map.on('touchstart', () => search.close());
 
 $('btn-mine').addEventListener('click', () => {
   menu.hidden = true;
+  account.close();
   search.close();
   drawer.hidden = !drawer.hidden;
   if (!drawer.hidden) renderList();
