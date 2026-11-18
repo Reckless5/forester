@@ -50,6 +50,7 @@ project URL and publishable key (Project Settings → API). Netlify has them set
 web/                 Web app (Vite + TypeScript + MapLibre GL)
   src/main.ts        Map setup, tabs, map menu, GPS
   src/landuse.ts     Which parcels contain forest / fields
+  src/crops.ts       Crop list (Kultur) for fields
   src/style.ts       Map layers (base map, forest, parcels, my parcels)
   src/parcel.ts      Works out which parcel was tapped
   src/store.ts       Saved parcels + groups (device or account, synced)
@@ -68,6 +69,7 @@ docs/
 - [x] GPS location, tap a parcel, save it as "mine"
 - [x] Saved parcels list with distance and direction, backup/restore as a file
 - [x] Map menu (layer button): Karte/Luftbild, "Wälder anzeigen", "Felder anzeigen"; debug location for testing
+- [x] Kultur on own field parcels: common Austrian crops, meadow/pasture, per year
 - [x] Flags on any parcel: Käferbefall, Windwurf, Durchforsten (with date), list filter
 - [x] Search: own/flagged parcels, any parcel by KG + number, KGs, places (OpenStreetMap via Photon)
 - [x] User accounts with invite links (Supabase), parcels sync across devices

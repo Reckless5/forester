@@ -149,6 +149,8 @@ interface ParcelRow {
   area_m2: number;
   saved_at: string;
   group_id: string | null;
+  land_use: ('forest' | 'field')[] | null;
+  crop: SavedParcel['crop'] | null;
 }
 
 const toRow = (p: SavedParcel, userId: string) => ({
@@ -165,6 +167,8 @@ const toRow = (p: SavedParcel, userId: string) => ({
   area_m2: p.areaM2,
   saved_at: p.savedAt,
   group_id: p.groupId ?? null,
+  land_use: p.landUse ?? [],
+  crop: p.crop ?? null,
 });
 
 const fromRow = (r: ParcelRow): SavedParcel => ({
@@ -180,12 +184,14 @@ const fromRow = (r: ParcelRow): SavedParcel => ({
   areaM2: r.area_m2,
   savedAt: r.saved_at,
   groupId: r.group_id ?? undefined,
+  landUse: r.land_use?.length ? r.land_use : undefined,
+  crop: r.crop ?? undefined,
 });
 
 export async function loadParcels(): Promise<SavedParcel[]> {
   const { data, error } = await sb()
     .from('parcels')
-    .select('key, name, kg_nr, kg_name, gnr, owned, flags, geometry, center, area_m2, saved_at, group_id');
+    .select('key, name, kg_nr, kg_name, gnr, owned, flags, geometry, center, area_m2, saved_at, group_id, land_use, crop');
   if (error) throw friendly(error);
   return (data as ParcelRow[]).map(fromRow);
 }
@@ -246,8 +252,8 @@ export const shareUrl = (token: string) => {
 
 /** Snapshot of the given parcels that anyone with the link can open. */
 export async function createShare(title: string, parcels: SavedParcel[], recipientId?: string): Promise<string> {
-  const snapshot = parcels.map(({ key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned }) => ({
-    key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned,
+  const snapshot = parcels.map(({ key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned, crop }) => ({
+    key, name, kgNr, kgName, gnr, flags, geometry, center, areaM2, owned, crop,
   }));
   const { data, error } = await sb()
     .from('shares')

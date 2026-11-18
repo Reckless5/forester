@@ -2,6 +2,7 @@
 
 import { accountsEnabled, createShare, getShare, listMembers, shareUrl, type SharedList } from './account';
 import { choose } from './dialog';
+import { cropText } from './crops';
 import { flagDef, sortFlags } from './flags';
 import { formatArea, type LngLat } from './geo';
 import type { SavedParcel } from './store';
@@ -10,7 +11,9 @@ const esc = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!);
 
 const parcelLine = (p: SavedParcel) => {
-  const flags = sortFlags(p.flags).map((f) => flagDef(f.type).label).join(', ');
+  const flags = [p.crop ? cropText(p.crop) : '', ...sortFlags(p.flags).map((f) => flagDef(f.type).label)]
+    .filter(Boolean)
+    .join(', ');
   const where = [p.gnr ? `Gst. ${p.gnr}` : '', p.kgName ? `KG ${p.kgName}` : ''].filter(Boolean).join(', ');
   const name = p.name && p.name !== `Gst. ${p.gnr}` ? `${p.name} – ` : '';
   return `• ${name}${where}${flags ? ` – ${flags}` : ''}`;
@@ -115,9 +118,11 @@ export function initSharedView(opts: {
       </div>
       <ul class="mine-list">${parcels
         .map((p, i) => {
-          const flags = sortFlags(p.flags)
-            .map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`)
-            .join('');
+          const flags =
+            (p.crop ? `<i class="pill pill-crop">${esc(cropText(p.crop))}</i>` : '') +
+            sortFlags(p.flags)
+              .map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`)
+              .join('');
           const rel = opts.relativeTo(p);
           return `<li><button type="button" data-sh="show" data-i="${i}">
             <strong>${esc(p.name || `Gst. ${p.gnr ?? ''}`)}</strong>

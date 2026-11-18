@@ -15,6 +15,7 @@ import {
 import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { AUSTRIA_BOUNDS, AUSTRIA_CENTER, PARCEL_MINZOOM } from './config';
 import { bbox, bearingDeg, compass, distanceM, formatArea, formatDistance, pointInPolygons, type LngLat } from './geo';
+import { CROP_GROUPS, cropText, isCropType, thisYear, type Crop } from './crops';
 import { FLAGS, flagDef, formatSince, sortFlags, type FlagType } from './flags';
 import { initOverview } from './overview-ui';
 import { createLandUseIndex } from './landuse';
@@ -75,6 +76,7 @@ const openingLink = /[?&](share|report)=/.test(location.search);
 let loggedIn = false;
 let sharedView: ReturnType<typeof initSharedView> | undefined;
 let overview: ReturnType<typeof initOverview> | undefined;
+let landUse: ReturnType<typeof createLandUseIndex> | undefined;
 let reports: ReturnType<typeof initReports> | undefined;
 type Tab = 'map' | 'overview' | 'more';
 let tab: Tab = 'map';
@@ -132,7 +134,7 @@ store.subscribe((parcels) => {
     features.push({ type: 'Feature', properties: { key: p.key, name: p.name, kind: 'area', owned, color }, geometry: p.geometry });
     features.push({
       type: 'Feature',
-      properties: { key: p.key, name: p.name, kind: 'point', owned },
+      properties: { key: p.key, name: p.crop ? `${p.name}\n${cropText(p.crop)}` : p.name, kind: 'point', owned },
       geometry: { type: 'Point', coordinates: p.center },
     });
     flags.forEach((f, i) =>
@@ -155,6 +157,59 @@ function updateHere() {
   const here = myPos && store.all().find((p) => pointInPolygons(myPos!, p.geometry.coordinates));
   chipHere.hidden = !here;
   if (here) chipHere.textContent = `Du bist auf: ${here.name}`;
+}
+
+// ---------- Land use of the parcel on the card ----------
+/** Field/forest for a parcel: stored value, else detected from the loaded tiles. */
+function landUseOf(info: ParcelInfo | SavedParcel): ('forest' | 'field')[] | undefined {
+  const stored = (info as SavedParcel).landUse;
+  const gstId = (info as ParcelInfo).raw?.gstId;
+  const live = landUse?.usesOf(info.kgNr, info.gnr, gstId);
+  if (live) {
+    const kept = store.get(info.key);
+    if (kept && isOwned(kept)) store.setLandUse(info.key, live); // remember it (and sync)
+    return live;
+  }
+  return stored;
+}
+
+function cropHtml(p: SavedParcel) {
+  const c = p.crop;
+  const year = c?.year ?? thisYear();
+  const years = [thisYear() - 1, thisYear(), thisYear() + 1];
+  if (!years.includes(year)) years.unshift(year);
+  return `<div class="crop-box">
+    <div class="crop-head"><strong>Kultur</strong>
+      <select data-crop-year aria-label="Jahr">${years.map((y) => `<option ${y === year ? 'selected' : ''}>${y}</option>`).join('')}</select>
+    </div>
+    <select data-crop aria-label="Was wächst hier?">
+      <option value="">– nicht eingetragen –</option>
+      ${CROP_GROUPS.map(
+        (g) => `<optgroup label="${esc(g.label)}">${g.crops
+          .map((x) => `<option value="${x.type}" ${c?.type === x.type ? 'selected' : ''}>${esc(x.label)}</option>`)
+          .join('')}</optgroup>`,
+      ).join('')}
+    </select>
+    ${
+      c
+        ? `<input data-crop-note type="text" maxlength="60" value="${esc(c.note ?? '')}"
+            placeholder="${c.type === 'sonstiges' ? 'Was wächst hier?' : 'Sorte / Notiz (optional)'}" />`
+        : ''
+    }
+  </div>`;
+}
+
+function updateCrop(key: string, patch: Partial<Crop> | null) {
+  const p = store.get(key);
+  if (!p) return;
+  if (patch === null) store.setCrop(key, undefined);
+  else {
+    const next = { type: p.crop?.type, year: p.crop?.year ?? thisYear(), note: p.crop?.note, ...patch };
+    if (!next.type || !isCropType(next.type)) return;
+    if (!next.note) delete next.note;
+    store.setCrop(key, next as Crop);
+  }
+  showSaved(store.get(key)!);
 }
 
 // ---------- Selection sheet ----------
@@ -212,6 +267,13 @@ function renderSheet() {
           ${esc(d.label)}${f ? `<small>seit ${esc(formatSince(f.since))}</small>` : ''}</button>`;
       }).join('')}
     </div>
+    ${
+      savedP && (savedP.crop || landUseOf(info)?.includes('field'))
+        ? cropHtml(savedP)
+        : !savedP && landUseOf(info)?.includes('field')
+          ? '<p class="fineprint crop-hint">Feld: als dein Grundstück speichern, um einzutragen, was hier wächst.</p>'
+          : ''
+    }
     <div class="sheet-actions">
       ${
         savedP
@@ -232,6 +294,17 @@ function renderSheet() {
   sheet.hidden = false;
 }
 
+sheet.addEventListener('change', (e) => {
+  const el = e.target as HTMLInputElement | HTMLSelectElement;
+  if (!selected) return;
+  const key = selected.info.key;
+  // A different crop starts without the previous crop's note
+  if (el.matches('[data-crop]')) updateCrop(key, el.value ? { type: el.value as Crop['type'], note: undefined } : null);
+  else if (el.matches('[data-crop-year]')) {
+    if (store.get(key)?.crop) updateCrop(key, { year: Number(el.value) });
+  } else if (el.matches('[data-crop-note]')) updateCrop(key, { note: el.value.trim() || undefined });
+});
+
 sheet.addEventListener('click', (e) => {
   const target = e.target as HTMLElement;
   const flagType = target.closest<HTMLElement>('[data-flag]')?.dataset.flag as FlagType | undefined;
@@ -249,7 +322,10 @@ sheet.addEventListener('click', (e) => {
   else if (act === 'save') {
     const name = prompt('Name für dieses Grundstück:', parcelTitle(info))?.trim();
     if (!name) return;
-    showSaved(store.own(info, name));
+    const uses = landUseOf(info);
+    store.own(info, name);
+    if (uses) store.setLandUse(info.key, uses);
+    showSaved(store.get(info.key)!);
   } else if (act === 'rename') {
     const cur = store.get(info.key);
     const name = prompt('Neuer Name:', cur?.name ?? '')?.trim();
@@ -295,7 +371,7 @@ map.on('click', (e) => {
   let hit = map.queryRenderedFeatures(e.point, { layers: [L.parcelHit] })[0] as MapGeoJSONFeature | undefined;
   // Only parcels of the kinds switched on in the map menu can be tapped
   const show = settings.get();
-  if (hit && !((show.showForest && landUse.is('forest', hit.id)) || (show.showFields && landUse.is('field', hit.id))))
+  if (hit && !((show.showForest && landUse?.is('forest', hit.id)) || (show.showFields && landUse?.is('field', hit.id))))
     hit = undefined;
   if (hit) {
     const info = identifyParcel(map, hit, e.lngLat);
@@ -354,7 +430,7 @@ function setDebugPos(pos: LngLat | undefined) {
 }
 
 // ---------- Which parcels are shown (map menu) ----------
-const landUse = createLandUseIndex(map);
+landUse = createLandUseIndex(map);
 
 function applyParcelVisibility() {
   const s = settings.get();
@@ -417,6 +493,14 @@ mapMenu.addEventListener('change', (e) => {
   applyParcelVisibility();
   clearSelection();
   renderMapMenu();
+});
+
+// A card opened before its tiles were loaded: once they are, show the crop section if it's a field
+map.on('idle', () => {
+  if (!selected || sheet.hidden || sheet.querySelector('.crop-box, .crop-hint')) return;
+  const kept = store.get(selected.info.key);
+  if (kept && isOwned(kept) && kept.landUse?.length) return;
+  if (landUseOf(selected.info)?.includes('field')) renderSheet();
 });
 
 map.on('mousedown', () => setMapMenu(false));

@@ -126,7 +126,25 @@ export function createLandUseIndex(map: MLMap) {
     }, 0);
   });
 
+  const usesOfIds = (ids: Id[]) => (Object.keys(parcels) as LandUse[]).filter((u) => ids.some((id) => parcels[u].has(id)));
+
   return {
     is: (use: LandUse, id: Id | undefined) => id !== undefined && parcels[use].has(id),
+    /**
+     * Land use of a parcel by KG and parcel number, from the tiles currently
+     * loaded. Undefined when the parcel isn't loaded (or not classified yet).
+     */
+    usesOf(kgNr: string | undefined, gnr: string | undefined, gstId?: Id): LandUse[] | undefined {
+      const ids: Id[] = gstId !== undefined && gstId !== null ? [gstId] : [];
+      if (kgNr && gnr && map.getSource('kataster'))
+        for (const f of map.querySourceFeatures('kataster', {
+          sourceLayer: 'gst',
+          filter: ['all', ['==', ['to-string', ['get', 'gnr']], gnr], ['==', ['to-string', ['get', 'kg']], kgNr]],
+        }))
+          if (f.id !== undefined && f.id !== null) ids.push(f.id);
+      if (!ids.length) return undefined;
+      const uses = usesOfIds(ids);
+      return uses.length ? uses : undefined;
+    },
   };
 }

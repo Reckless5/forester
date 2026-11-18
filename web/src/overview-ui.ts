@@ -3,6 +3,7 @@
 
 import { accountsEnabled, deleteReceived, listReceived, markReceivedSeen, type Received } from './account';
 import { actionSheet, askText, choose } from './dialog';
+import { cropText } from './crops';
 import { FLAGS, flagDef, sortFlags, type FlagType } from './flags';
 import { formatArea } from './geo';
 import { isOwned, store, type Group, type SavedParcel } from './store';
@@ -41,6 +42,7 @@ export function initOverview(opts: {
     const pills = flags.map((f) => `<i class="pill" style="--c:${flagDef(f.type).color}">${esc(flagDef(f.type).label)}</i>`);
     if (pending.has(p.key)) pills.push('<i class="pill pill-outline" style="--c:#c62828">Meldung offen</i>');
     if (!pills.length) pills.push('<i class="pill pill-ok">Keine Meldung</i>');
+    if (p.crop) pills.unshift(`<i class="pill pill-crop">${esc(cropText(p.crop))}</i>`);
     return `<span class="pills">${pills.join('')}</span>`;
   }
 

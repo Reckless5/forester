@@ -5,6 +5,7 @@
 // Logged in: kept in Supabase; every change is sent there (see `Remote`), and a
 // copy is cached on the device per account so the map shows up quickly.
 
+import type { Crop } from './crops';
 import { sortFlags, type Flag, type FlagType } from './flags';
 import type { LngLat, MultiPolygon } from './geo';
 
@@ -25,6 +26,10 @@ export interface SavedParcel {
   flags?: Flag[];
   /** The group it's sorted into, if any. */
   groupId?: string;
+  /** Detected land use ('forest', 'field'); decides whether a crop can be set. */
+  landUse?: ('forest' | 'field')[];
+  /** What grows there this year (fields only). */
+  crop?: Crop;
 }
 
 export interface Group {
@@ -188,6 +193,14 @@ export const store = {
       parcels: parcels.map((p) => (p.groupId === id ? { ...p, groupId: undefined } : p)),
       groups: groups.filter((g) => g.id !== id),
     });
+  },
+  setCrop(key: string, crop: Crop | undefined) {
+    set({ parcels: parcels.map((p) => (p.key === key ? { ...p, crop } : p)) });
+  },
+  setLandUse(key: string, landUse: ('forest' | 'field')[]) {
+    const cur = parcels.find((p) => p.key === key);
+    if (!cur || [...(cur.landUse ?? [])].sort().join() === [...landUse].sort().join()) return;
+    set({ parcels: parcels.map((p) => (p.key === key ? { ...p, landUse } : p)) });
   },
   moveToGroup(key: string, groupId: string | undefined) {
     set({ parcels: parcels.map((p) => (p.key === key ? { ...p, groupId } : p)) });
